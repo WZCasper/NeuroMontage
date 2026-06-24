@@ -897,8 +897,8 @@ async function aiCheck(b64, key) {
    FFMPEG LOADER
 ══════════════════════════════════════════════════════ */
 async function loadFFmpeg() {
-  log('Загружаем FFmpeg WebAssembly (~26 МБ)...', 'linf');
-  const { FFmpeg } = await import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10');
+  log('Загружаем FFmpeg WebAssembly (~27 МБ)...', 'linf');
+  const { FFmpeg }               = await import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10');
   const { toBlobURL, fetchFile } = await import('https://esm.sh/@ffmpeg/util@0.12.1');
   window.__fetchFile = fetchFile;
 
@@ -912,10 +912,23 @@ async function loadFFmpeg() {
     if (pct !== lastPct) { lastPct = pct; setP(2 + pct * 0.1, `${lbl}: ${pct}% (${fs(received)})`); }
   };
 
+  // ── Fix: Worker из esm.sh блокируется как кросс-оригинный.
+  //    toBlobURL скачивает скрипт и создаёт blob:-URL того же происхождения,
+  //    обходя ограничение браузера. Аналогично делаем с core и wasm.
+  setP(2, 'Скачиваем worker.js...');
+  const workerURL = await toBlobURL(
+    'https://esm.sh/@ffmpeg/ffmpeg@0.12.10/es2022/worker.js',
+    'text/javascript'
+  );
+
+  lastPct = 0;
   const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript',  true, mkProg('Core JS'));
   lastPct = 0;
   const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm', true, mkProg('WASM'));
-  await ff.load({ coreURL, wasmURL });
+
+  // classWorkerURL — сообщает FFmpeg использовать наш blob:-URL вместо
+  // кросс-оригинного './worker.js' относительно esm.sh
+  await ff.load({ classWorkerURL: workerURL, coreURL, wasmURL });
   log('FFmpeg загружен ✓', 'lok');
   return { ff, fetchFile };
 }
