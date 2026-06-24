@@ -199,6 +199,21 @@ canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:cr
 #previewVid{width:100%;border-radius:8px;background:#000;display:block;max-height:360px}
 .modal-meta{font-size:.78rem;color:var(--txd);margin-top:.6rem}
 
+/* ─── AI MODE SELECTOR ─── */
+.ai-modes{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:.6rem}
+.ai-mode-btn{cursor:pointer;display:block}
+.ai-mode-btn input{display:none}
+.ai-mode-inner{display:flex;flex-direction:column;align-items:center;gap:.2rem;padding:.65rem .4rem;
+  background:var(--bg3);border:2px solid var(--bor);border-radius:10px;
+  transition:all .2s;text-align:center;height:100%}
+.ai-mode-btn:hover .ai-mode-inner{border-color:rgba(124,58,237,.4)}
+.ai-mode-btn input:checked+.ai-mode-inner{border-color:var(--p);background:rgba(124,58,237,.15)}
+.ai-mode-ico{font-size:1.5rem}
+.ai-mode-lbl{font-size:.78rem;font-weight:700;line-height:1.2}
+.ai-mode-sub{font-size:.65rem;color:var(--txd);line-height:1.3}
+.ai-key-row{margin-top:.75rem;display:none}
+@media(max-width:500px){.ai-modes{grid-template-columns:1fr 1fr}}
+
 /* ─── RENDER BUTTON ─── */
 .render-row{display:flex;gap:.75rem;align-items:center;margin-top:1.1rem}
 #btnRender{flex:1;background:linear-gradient(135deg,var(--ok),#059669);border:none;
@@ -298,23 +313,63 @@ canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:cr
   </div>
 
   <div class="divider"></div>
-  <div class="sec-lbl">🤖 AI-анализ кадров (Claude) — необязательно</div>
-  <div class="tog-row">
-    <span>Включить AI: распознаёт килл-фид, урон, взрывы на кадре</span>
-    <label class="tog"><input type="checkbox" id="aion"><span class="knob"></span></label>
+  <div class="sec-lbl">🧠 Визуальный анализ кадров</div>
+
+  <div class="ai-modes">
+    <label class="ai-mode-btn">
+      <input type="radio" name="aimode" value="none" checked>
+      <span class="ai-mode-inner">
+        <span class="ai-mode-ico">🔈</span>
+        <span class="ai-mode-lbl">Только звук</span>
+        <span class="ai-mode-sub">быстро · без ключей</span>
+      </span>
+    </label>
+    <label class="ai-mode-btn">
+      <input type="radio" name="aimode" value="browser">
+      <span class="ai-mode-inner">
+        <span class="ai-mode-ico">🧠</span>
+        <span class="ai-mode-lbl">Браузерный AI</span>
+        <span class="ai-mode-sub">бесплатно · без ключей</span>
+      </span>
+    </label>
+    <label class="ai-mode-btn">
+      <input type="radio" name="aimode" value="gemini">
+      <span class="ai-mode-inner">
+        <span class="ai-mode-ico">✨</span>
+        <span class="ai-mode-lbl">Google Gemini</span>
+        <span class="ai-mode-sub">бесплатный ключ</span>
+      </span>
+    </label>
+    <label class="ai-mode-btn">
+      <input type="radio" name="aimode" value="claude">
+      <span class="ai-mode-inner">
+        <span class="ai-mode-ico">🤖</span>
+        <span class="ai-mode-lbl">Claude</span>
+        <span class="ai-mode-sub">платно · точнее всего</span>
+      </span>
+    </label>
   </div>
-  <div id="apirow" style="display:none;margin-top:.75rem">
+
+  <div class="ai-key-row" id="geminiKeyRow">
     <div class="sf">
-      <label>API-ключ Anthropic</label>
-      <input type="password" id="apikey" placeholder="sk-ant-api03-...">
+      <label>API-ключ Google Gemini —
+        <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--ac)">получить бесплатно на aistudio.google.com</a>
+      </label>
+      <input type="password" id="geminikey" placeholder="AIzaSy...">
     </div>
   </div>
-  <div class="hint">
-    💡 <b>Без AI</b> — IIR-анализ звука: выстрелы (высокочастотные транзиенты), взрывы (суббасовые пики), реакции/смех (голосовая полоса 400–3500 Гц).<br>
-    🤖 <b>С AI</b> — Claude смотрит на кадры: килл-фид, цифры урона, вспышки. Бесплатный ключ на
-    <a href="https://console.anthropic.com" target="_blank" style="color:var(--ac)">console.anthropic.com</a>
+  <div class="ai-key-row" id="claudeKeyRow">
+    <div class="sf">
+      <label>API-ключ Anthropic —
+        <a href="https://console.anthropic.com" target="_blank" style="color:var(--ac)">console.anthropic.com</a>
+      </label>
+      <input type="password" id="claudekey" placeholder="sk-ant-api03-...">
+    </div>
   </div>
-</div>
+
+  <div class="hint" id="aiHint">
+    🔈 <b>Только звук</b> — IIR-фильтры: выстрелы, взрывы, реакции, смех по частотным полосам. Быстро, работает без интернета.
+  </div>
 
 <!-- MAIN BUTTON -->
 <div class="act">
@@ -474,18 +529,34 @@ function loadFile(f) {
    SETTINGS
 ══════════════════════════════════════════════════════ */
 $('sens').oninput = function () { $('sensval').textContent = this.value + '%'; };
-$('aion').onchange = function () { $('apirow').style.display = this.checked ? 'block' : 'none'; };
 document.querySelectorAll('.tag').forEach(t => t.addEventListener('click', () => t.classList.toggle('on')));
+
+const AI_HINTS = {
+  none:    '🔈 <b>Только звук</b> — IIR-фильтры: выстрелы, взрывы, реакции, смех по частотным полосам. Быстро, работает без интернета.',
+  browser: '🧠 <b>Браузерный AI</b> — пиксельный анализ кадров: килл-фид (верхний правый угол), красный виньет HP, вспышки взрывов, цифры урона. Бесплатно, всё в браузере.',
+  gemini:  '✨ <b>Google Gemini 1.5 Flash</b> — бесплатный AI от Google смотрит на каждый кадр. Лимит: 1500 запросов/день. Ключ бесплатно на <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--ac)">aistudio.google.com</a>',
+  claude:  '🤖 <b>Claude Sonnet</b> — наиболее точный анализ, понимает контекст игровых сцен. Платно (~$0.002 за кадр). Ключ на <a href="https://console.anthropic.com" target="_blank" style="color:var(--ac)">console.anthropic.com</a>'
+};
+
+document.querySelectorAll('input[name="aimode"]').forEach(r => {
+  r.addEventListener('change', function () {
+    $('geminiKeyRow').style.display = this.value === 'gemini' ? 'block' : 'none';
+    $('claudeKeyRow').style.display = this.value === 'claude' ? 'block' : 'none';
+    $('aiHint').innerHTML = AI_HINTS[this.value] || AI_HINTS.none;
+  });
+});
 
 function cfg() {
   return {
-    sens: parseInt($('sens').value) / 100,
-    minc: parseFloat($('minc').value) || 2,
-    maxc: parseFloat($('maxc').value) || 25,
-    padb: parseFloat($('padb').value) || 2,
-    pada: parseFloat($('pada').value) || 4,
-    ai: $('aion').checked, apiKey: $('apikey').value.trim(),
-    types: [...document.querySelectorAll('.tag.on')].map(t => t.dataset.t)
+    sens:      parseInt($('sens').value) / 100,
+    minc:      parseFloat($('minc').value) || 2,
+    maxc:      parseFloat($('maxc').value) || 25,
+    padb:      parseFloat($('padb').value) || 2,
+    pada:      parseFloat($('pada').value) || 4,
+    aiMode:    document.querySelector('input[name="aimode"]:checked')?.value || 'none',
+    geminiKey: $('geminikey').value.trim(),
+    claudeKey: $('claudekey').value.trim(),
+    types:     [...document.querySelectorAll('.tag.on')].map(t => t.dataset.t)
   };
 }
 
@@ -862,19 +933,111 @@ function closePreview(e) {
 }
 
 /* ══════════════════════════════════════════════════════
-   AI FRAME CHECK
+   AI FRAME ANALYSIS — 3 modes
 ══════════════════════════════════════════════════════ */
+
+// Returns canvas (not base64) so browser mode can read pixels without re-decoding
 async function grabFrame(t) {
   const vid = $('srcVid'); vid.currentTime = t;
-  await new Promise(res => { const h = () => { vid.removeEventListener('seeked',h); res(); }; vid.addEventListener('seeked',h); setTimeout(res,2000); });
-  const W = Math.min(vid.videoWidth||640,640);
-  const H = Math.round(W*(vid.videoHeight||360)/(vid.videoWidth||640));
-  const c = document.createElement('canvas'); c.width=W; c.height=H;
-  c.getContext('2d').drawImage(vid,0,0,W,H);
-  return c.toDataURL('image/jpeg',0.5).split(',')[1];
+  await new Promise(res => {
+    const h = () => { vid.removeEventListener('seeked', h); res(); };
+    vid.addEventListener('seeked', h); setTimeout(res, 2000);
+  });
+  const W = Math.min(vid.videoWidth || 640, 640);
+  const H = Math.round(W * (vid.videoHeight || 360) / (vid.videoWidth || 640));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  c.getContext('2d').drawImage(vid, 0, 0, W, H);
+  return c;
 }
 
-async function aiCheck(b64, key) {
+// ── MODE 1: Browser heuristics (free, no key) ──────────────────────────────
+function analyzeFrameBrowser(canvas) {
+  const W = canvas.width, H = canvas.height;
+  const d = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+
+  function region(x1f, y1f, x2f, y2f) {
+    const x1=Math.floor(x1f*W), y1=Math.floor(y1f*H);
+    const x2=Math.floor(x2f*W), y2=Math.floor(y2f*H);
+    let r=0,g=0,b=0,lum=0,contrast=0,n=0,prevL=0;
+    for (let y=y1; y<y2; y++) {
+      for (let x=x1; x<x2; x++) {
+        const i=(y*W+x)*4;
+        const ri=d[i],gi=d[i+1],bi=d[i+2];
+        const L=0.299*ri+0.587*gi+0.114*bi;
+        r+=ri; g+=gi; b+=bi; lum+=L;
+        contrast+=Math.abs(L-prevL); prevL=L; n++;
+      }
+    }
+    return n ? {r:r/n,g:g/n,b:b/n,lum:lum/n,contrast:contrast/n} : {r:0,g:0,b:0,lum:0,contrast:0};
+  }
+
+  let score=0, type='action';
+  const signals=[];
+
+  // 🔫 Kill feed — top-right corner: high contrast text + red indicators
+  const kf = region(0.58, 0, 1.0, 0.22);
+  const kfC = Math.min(1, kf.contrast / 11);          // text-like contrast
+  const kfR = kf.r > 135 && kf.r > kf.g*1.25 ? 0.45 : 0;  // red tones
+  const kfS = kfC*0.65 + kfR*0.35;
+  if (kfS > 0.26) { score += kfS*0.50; type='kills'; signals.push(`килл-фид ${(kfS*100).toFixed(0)}%`); }
+
+  // ❤️ Low HP — red vignette on screen edges
+  const edges = [region(0,0.1,.10,0.9), region(0.90,0.1,1,0.9), region(0.1,0.85,0.9,1)];
+  const edgeRed = edges.reduce((a,e) => a + Math.max(0,(e.r-Math.max(e.g,e.b))/255*(e.lum/200)), 0) / 3;
+  if (edgeRed > 0.04) { score += Math.min(0.5, edgeRed*6)*0.30; signals.push(`низкий HP ${(edgeRed*100).toFixed(0)}%`); }
+
+  // 💥 Explosion/flash — high brightness + orange tint in center
+  const cen = region(0.15, 0.10, 0.85, 0.90);
+  const isOrange = cen.r > cen.b*1.55 && cen.g > cen.b*1.15;
+  const isBright = cen.lum > 150;
+  if (isOrange && isBright) {
+    const fl = Math.min(1, (cen.lum-90)/130);
+    score += fl*0.45; type='exp'; signals.push(`взрыв/вспышка ${(fl*100).toFixed(0)}%`);
+  }
+
+  // 🟡 Damage numbers — yellow/orange isolated bright spots in center area
+  let spots=0;
+  for (let sy=0.25; sy<0.75; sy+=0.05) {
+    for (let sx=0.20; sx<0.80; sx+=0.05) {
+      const px=Math.floor(sx*W), py=Math.floor(sy*H), i=(py*W+px)*4;
+      if (d[i]>185 && d[i+1]>145 && d[i+2]<95) spots++; // yellow/gold pixel
+    }
+  }
+  if (spots > 3) { score += Math.min(1,spots/10)*0.20; signals.push(`урон (${spots} точек)`); }
+
+  // Scene saturation boost
+  const full = region(0,0,1,1);
+  const sat = Math.max(full.r,full.g,full.b) > 10
+    ? (Math.max(full.r,full.g,full.b)-Math.min(full.r,full.g,full.b)) / Math.max(full.r,full.g,full.b) : 0;
+  if (sat > 0.38 && full.lum > 65) score += sat*0.08;
+
+  return { h: score>0.20, c: Math.min(1,score), type, reason: signals.join(' · ')||'нет признаков' };
+}
+
+// ── MODE 2: Google Gemini 1.5 Flash (free tier) ────────────────────────────
+async function aiCheckGemini(canvas, key) {
+  const b64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contents:[{parts:[
+          { inline_data:{ mime_type:'image/jpeg', data:b64 }},
+          { text:'FPS game screenshot. Is this a highlight? Look for: kill feed (top-right), damage numbers, explosions, low HP red edges, enemy death. Reply ONLY JSON no markdown: {"h":true,"c":0.85,"type":"kills"}' }
+        ]}], generationConfig:{maxOutputTokens:80,temperature:0} })
+      }
+    );
+    const d = await r.json();
+    if (d.error) { log('Gemini: ' + d.error.message, 'lwarn'); return {h:true,c:0.5}; }
+    const txt = (d.candidates?.[0]?.content?.parts?.[0]?.text || '{"h":true,"c":0.5}')
+      .replace(/```json?|```/g,'').trim();
+    return JSON.parse(txt);
+  } catch(e) { log('Gemini запрос не удался: '+e.message,'lwarn'); return {h:true,c:0.5}; }
+}
+
+// ── MODE 3: Claude Sonnet (paid, most accurate) ────────────────────────────
+async function aiCheckClaude(canvas, key) {
+  const b64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
@@ -887,10 +1050,20 @@ async function aiCheck(b64, key) {
         ]}]})
     });
     const d = await r.json();
-    if (d.error) { log('AI ошибка: ' + (d.error.message||'?'), 'lwarn'); return {h:true,c:0.5}; }
+    if (d.error) { log('Claude: '+d.error.message,'lwarn'); return {h:true,c:0.5}; }
     const txt = (d.content?.[0]?.text||'{"h":true,"c":0.5}').replace(/```json?|```/g,'').trim();
     return JSON.parse(txt);
-  } catch(e) { log('AI запрос не удался: ' + e.message, 'lwarn'); return {h:true,c:0.5}; }
+  } catch(e) { log('Claude запрос не удался: '+e.message,'lwarn'); return {h:true,c:0.5}; }
+}
+
+// ── Router ─────────────────────────────────────────────────────────────────
+async function checkFrame(canvas, c) {
+  switch (c.aiMode) {
+    case 'browser': return analyzeFrameBrowser(canvas);
+    case 'gemini':  return await aiCheckGemini(canvas, c.geminiKey);
+    case 'claude':  return await aiCheckClaude(canvas, c.claudeKey);
+    default:        return { h: true, c: 1.0 }; // 'none' — пропускаем всё
+  }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -973,7 +1146,8 @@ async function analyze() {
   if (!state.file) { showErr('Сначала загрузи видео!'); return; }
   if (state.busy) return;
   const c = cfg();
-  if (c.ai && !c.apiKey) { showErr('Включён AI — введи API-ключ или отключи AI'); return; }
+  if (c.aiMode === 'gemini' && !c.geminiKey) { showErr('Выбран Gemini — введи бесплатный API-ключ Google'); return; }
+  if (c.aiMode === 'claude' && !c.claudeKey) { showErr('Выбран Claude — введи API-ключ Anthropic'); return; }
 
   state.busy = true; hideErr();
   $('btnMain').disabled = true;
@@ -1008,23 +1182,34 @@ async function analyze() {
     if (!state.segs.length)
       throw new Error('Сегменты не сформированы. Уменьши "Мин. длину клипа" или повысь чувствительность.');
 
-    // ── AI Check ──
-    if (c.ai && c.apiKey) {
-      setSteps(3,3); setP(42,'AI-анализ кадров...');
+    // ── Visual frame check ──
+    const useVisual = c.aiMode !== 'none';
+    if (useVisual) {
+      if (c.aiMode === 'gemini' && !c.geminiKey) throw new Error('Выбран Gemini — введи API-ключ Google');
+      if (c.aiMode === 'claude'  && !c.claudeKey) throw new Error('Выбран Claude — введи API-ключ Anthropic');
+
+      const modeName = {browser:'Браузерный AI',gemini:'Gemini',claude:'Claude'}[c.aiMode];
+      setSteps(3,3); setP(42,`${modeName}: анализируем кадры...`);
+      log(`Режим: ${modeName} · ${state.segs.length} сегментов`, 'linf');
+
       const kept = [];
       for (let i = 0; i < state.segs.length; i++) {
         const s = state.segs[i];
-        setP(42 + i/state.segs.length*22, `AI: ${i+1}/${state.segs.length}`);
-        const b64 = await grabFrame((s.start+s.end)/2);
-        const res = await aiCheck(b64, c.apiKey);
-        const ok  = res.h !== false || (res.c||0) >= 0.3;
+        setP(42 + i/state.segs.length*22, `${modeName}: ${i+1}/${state.segs.length}`);
+
+        const canvas = await grabFrame((s.start + s.end) / 2);
+        const res    = await checkFrame(canvas, c);
+        const ok     = res.h !== false || (res.c||0) >= 0.25;
         if (res.type && ok) s.type = res.type;
-        log(`[${ft((s.start+s.end)/2)}] ${ok?'✅':'❌'} уверенность ${Math.round((res.c||0)*100)}%`);
+
+        const reason = res.reason ? ` (${res.reason})` : '';
+        log(`[${ft((s.start+s.end)/2)}] ${ok?'✅':'❌'} ${Math.round((res.c||0)*100)}%${reason}`);
         if (ok) kept.push(s);
-        await new Promise(r => setTimeout(r, 200));
+
+        if (c.aiMode !== 'browser') await new Promise(r => setTimeout(r, 180));
       }
-      if (kept.length > 0) { state.segs = kept; log(`AI подтвердил: ${kept.length}`, 'lok'); }
-      else log('AI отклонил все — используем аудиоанализ', 'lwarn');
+      if (kept.length > 0) { state.segs = kept; log(`Подтверждено: ${kept.length}`, 'lok'); }
+      else log('Ни один не подтверждён — используем все аудио-сегменты', 'lwarn');
     }
 
     // ── Draw waveform ──
