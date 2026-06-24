@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoMontage 🎮 — Автоматический монтаж хайлайтов</title>
+<script src="coi-serviceworker.js"></script>
+<style>
+:root{
+  --bg:#06060f;--bg2:#0d0d1c;--bg3:#131325;--bg4:#1b1b35;
+  --p:#7c3aed;--pl:#a855f7;--ac:#06b6d4;--ok:#10b981;--err:#ef4444;--warn:#f59e0b;
+  --tx:#e2e8f0;--txd:#94a3b8;--bor:rgba(255,255,255,0.07);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:hidden}
+
+body::before{content:'';position:fixed;inset:0;z-index:0;
+  background:radial-gradient(ellipse at 15% 10%,rgba(124,58,237,.1) 0%,transparent 55%),
+             radial-gradient(ellipse at 85% 90%,rgba(6,182,212,.06) 0%,transparent 50%);pointer-events:none}
+body::after{content:'';position:fixed;inset:0;z-index:0;
+  background-image:linear-gradient(rgba(124,58,237,.04) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(124,58,237,.04) 1px,transparent 1px);
+  background-size:44px 44px;pointer-events:none}
+
+.wrap{max-width:960px;margin:0 auto;padding:0 1.25rem 5rem;position:relative;z-index:1}
+
+/* ─── HEADER ─── */
+.hdr{text-align:center;padding:3rem 0 1.75rem}
+.logo{font-size:2.6rem;font-weight:900;letter-spacing:-1px;
+  background:linear-gradient(135deg,#c084fc 0%,#06b6d4 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.ver{display:inline-block;background:rgba(6,182,212,.15);border:1px solid rgba(6,182,212,.3);
+  color:var(--ac);font-size:.68rem;font-weight:700;padding:.2rem .55rem;border-radius:20px;
+  margin-left:.5rem;vertical-align:middle;letter-spacing:.08em}
+.tagline{color:var(--txd);font-size:.9rem;margin-top:.4rem}
+
+/* ─── CARD ─── */
+.card{background:var(--bg2);border:1px solid var(--bor);border-radius:14px;padding:1.5rem;margin-bottom:1.1rem}
+
+/* ─── DROP ─── */
+.drop{border:2px dashed rgba(124,58,237,.35);border-radius:14px;padding:3rem 2rem;
+  text-align:center;cursor:pointer;transition:all .2s;background:rgba(124,58,237,.03);margin-bottom:1.1rem}
+.drop:hover,.drop.over{border-color:var(--p);background:rgba(124,58,237,.08);
+  box-shadow:0 0 30px rgba(124,58,237,.25);transform:translateY(-2px)}
+.drop-ico{font-size:3.2rem;margin-bottom:.6rem}
+.drop-ttl{font-size:1.25rem;font-weight:700;margin-bottom:.35rem}
+.drop-hint{color:var(--txd);font-size:.82rem;line-height:1.6}
+
+/* ─── FILE INFO ─── */
+.finfo{display:none;align-items:center;gap:1rem}
+.finfo.show{display:flex}
+.fname{font-weight:600;font-size:.95rem}
+.fmeta{color:var(--txd);font-size:.78rem;margin-top:3px}
+.fclear{margin-left:auto;background:none;border:1px solid rgba(239,68,68,.3);color:var(--err);
+  border-radius:6px;padding:.3rem .6rem;cursor:pointer;font-size:.75rem;transition:all .2s}
+.fclear:hover{background:rgba(239,68,68,.1)}
+
+.err{display:none;padding:.8rem 1rem;background:rgba(239,68,68,.08);
+  border:1px solid rgba(239,68,68,.3);border-radius:8px;color:var(--err);font-size:.85rem;margin-bottom:.9rem}
+.err.show{display:block}
+
+/* ─── SETTINGS ─── */
+.settings-card{display:none}
+.settings-card.show{display:block}
+.sec-lbl{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--txd);margin-bottom:1rem;display:flex;align-items:center;gap:.45rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.1rem}
+.col2{grid-column:1/-1}
+.sf{display:flex;flex-direction:column;gap:.4rem}
+.sf label{font-size:.78rem;color:var(--txd);display:flex;justify-content:space-between}
+.sf label .val{color:var(--ac);font-weight:700}
+.sf input[type=range]{width:100%;accent-color:var(--p);cursor:pointer}
+.sf input[type=number],.sf input[type=password]{
+  background:var(--bg3);border:1px solid var(--bor);border-radius:8px;
+  padding:.6rem .85rem;color:var(--tx);font-size:.86rem;outline:none;width:100%;transition:border-color .2s}
+.sf input:focus{border-color:var(--p)}
+
+.tags{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.4rem}
+.tag{padding:.32rem .7rem;background:var(--bg3);border:1px solid var(--bor);
+  border-radius:20px;font-size:.78rem;cursor:pointer;user-select:none;transition:all .2s}
+.tag.on{background:rgba(124,58,237,.2);border-color:var(--p);color:var(--pl)}
+
+.divider{height:1px;background:var(--bor);margin:1.1rem 0}
+.tog-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.tog-row span{font-size:.84rem;color:var(--txd)}
+.tog{position:relative;flex-shrink:0}
+.tog input{position:absolute;opacity:0;width:0;height:0}
+.knob{display:block;width:44px;height:23px;background:var(--bg4);border:1px solid var(--bor);
+  border-radius:12px;cursor:pointer;transition:all .22s;position:relative}
+.knob::after{content:'';position:absolute;width:15px;height:15px;background:var(--txd);
+  border-radius:50%;top:3px;left:3px;transition:all .22s}
+.tog input:checked+.knob{background:var(--p);border-color:var(--p)}
+.tog input:checked+.knob::after{left:22px;background:#fff}
+
+.hint{font-size:.78rem;color:var(--txd);line-height:1.55;margin-top:.75rem;
+  padding:.7rem .9rem;background:rgba(6,182,212,.05);border-radius:8px;border-left:3px solid rgba(6,182,212,.4)}
+
+/* ─── MAIN BUTTON ─── */
+.act{text-align:center;margin:1.4rem 0}
+#btnMain{display:none;align-items:center;gap:.7rem;
+  background:linear-gradient(135deg,#7c3aed,#5b21b6);border:none;border-radius:14px;
+  padding:1.05rem 3.2rem;font-size:1.25rem;font-weight:900;color:#fff;cursor:pointer;
+  letter-spacing:2px;text-transform:uppercase;
+  box-shadow:0 0 40px rgba(124,58,237,.5),0 8px 24px rgba(0,0,0,.4);
+  transition:all .22s;overflow:hidden;position:relative}
+#btnMain.show{display:inline-flex}
+#btnMain:hover:not(:disabled){transform:translateY(-3px);
+  box-shadow:0 0 60px rgba(124,58,237,.7),0 12px 32px rgba(0,0,0,.5)}
+#btnMain:disabled{opacity:.5;cursor:not-allowed;transform:none}
+#btnMain::before{content:'';position:absolute;top:0;left:-120%;width:70%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.13),transparent);
+  transform:skewX(-20deg);animation:shine 3.5s infinite}
+@keyframes shine{0%{left:-120%}70%,100%{left:180%}}
+
+/* ─── PROGRESS ─── */
+.prog-card{display:none}
+.prog-card.show{display:block}
+.steps{display:flex;gap:5px;margin-bottom:1.1rem}
+.step{flex:1;height:4px;border-radius:2px;background:var(--bg4);transition:background .3s}
+.step.done{background:var(--ok)}.step.act{background:var(--p);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.45}}
+.pbar{background:var(--bg3);border-radius:8px;height:10px;overflow:hidden;margin:.6rem 0}
+.pfill{height:100%;background:linear-gradient(90deg,var(--p),var(--ac));border-radius:8px;width:0%;transition:width .45s ease}
+.plbl{text-align:center;font-size:.82rem;color:var(--txd);margin-bottom:.7rem}
+.logbox{background:var(--bg3);border-radius:8px;padding:.7rem .9rem;height:130px;overflow-y:auto;
+  font-family:'Courier New',monospace;font-size:.73rem;color:var(--txd)}
+.logbox::-webkit-scrollbar{width:4px}
+.logbox::-webkit-scrollbar-thumb{background:var(--bor);border-radius:2px}
+.le{margin-bottom:3px;line-height:1.45}
+.lok{color:var(--ok)}.lerr{color:var(--err)}.linf{color:var(--ac)}.lwarn{color:var(--warn)}
+
+/* ─── WAVEFORM ─── */
+.wf-card{display:none}
+.wf-card.show{display:block}
+.wf-wrap{position:relative;margin-bottom:.5rem}
+canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:crosshair;background:var(--bg3)}
+.wf-cursor{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.4);pointer-events:none;display:none}
+.wf-foot{display:flex;justify-content:space-between;font-size:.72rem;color:var(--txd);margin-top:4px}
+.wf-legend{display:flex;gap:1.2rem;flex-wrap:wrap;margin-top:.5rem}
+.wf-leg-item{display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--txd)}
+.wf-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ─── SEGMENTS EDITOR ─── */
+.segs-card{display:none}
+.segs-card.show{display:block}
+.segs-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.segs-counter{font-size:.82rem;color:var(--txd)}
+.segs-actions{display:flex;gap:.5rem}
+.sa-btn{background:var(--bg3);border:1px solid var(--bor);color:var(--txd);
+  border-radius:6px;padding:.3rem .75rem;cursor:pointer;font-size:.75rem;transition:all .2s}
+.sa-btn:hover{border-color:var(--p);color:var(--pl)}
+.segs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.75rem}
+
+/* ─── SEGMENT CARD ─── */
+.sc{background:var(--bg3);border:1px solid var(--bor);border-radius:10px;overflow:hidden;
+  transition:all .2s;position:relative}
+.sc:hover{border-color:rgba(124,58,237,.5);transform:translateY(-2px)}
+.sc.excluded{opacity:.35;filter:grayscale(.8)}
+.sc.excluded .sc-overlay{opacity:1}
+.sc-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.5);opacity:0;transition:opacity .2s;pointer-events:none;z-index:2}
+.sc-overlay-txt{font-size:.8rem;font-weight:700;color:var(--err)}
+.sc-preview{width:100%;height:90px;background:#000;display:block;cursor:pointer;position:relative}
+.sc-thumb{width:100%;height:90px;object-fit:cover;display:block;background:var(--bg4)}
+.sc-play-btn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);opacity:0;transition:opacity .2s;cursor:pointer;z-index:1}
+.sc-preview:hover .sc-play-btn{opacity:1}
+.sc-play-icon{font-size:1.8rem}
+.sc-body{padding:.65rem .75rem}
+.sc-type{font-size:.7rem;font-weight:700;letter-spacing:.06em;margin-bottom:.25rem}
+.sc-type.kill{color:#ef4444}.sc-type.exp{color:#f97316}.sc-type.react{color:#a855f7}
+.sc-type.laugh{color:#eab308}.sc-type.action{color:var(--ac)}
+.sc-time{font-size:.82rem;font-weight:700;color:var(--tx)}
+.sc-dur{font-size:.72rem;color:var(--txd);margin-top:2px}
+.sc-footer{display:flex;gap:.4rem;margin-top:.55rem}
+.sc-btn{flex:1;background:var(--bg4);border:1px solid var(--bor);border-radius:5px;
+  padding:.3rem;font-size:.72rem;cursor:pointer;color:var(--txd);transition:all .2s;text-align:center}
+.sc-btn:hover{border-color:var(--p);color:var(--pl)}
+.sc-btn.exc{color:var(--err);border-color:rgba(239,68,68,.25)}
+.sc-btn.exc:hover{background:rgba(239,68,68,.1);border-color:var(--err)}
+.sc-btn.incl{color:var(--ok);border-color:rgba(16,185,129,.25)}
+.sc-btn.incl:hover{background:rgba(16,185,129,.1);border-color:var(--ok)}
+
+/* ─── VIDEO PREVIEW MODAL ─── */
+.modal-bg{display:none;position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,.85);backdrop-filter:blur(6px);
+  align-items:center;justify-content:center}
+.modal-bg.show{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--bor);border-radius:14px;
+  width:min(700px,95vw);overflow:hidden}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:.9rem 1.2rem;
+  border-bottom:1px solid var(--bor)}
+.modal-ttl{font-size:.9rem;font-weight:700}
+.modal-close{background:none;border:none;color:var(--txd);font-size:1.4rem;cursor:pointer;
+  line-height:1;padding:.2rem .4rem;border-radius:4px;transition:color .2s}
+.modal-close:hover{color:var(--tx)}
+.modal-body{padding:1rem}
+#previewVid{width:100%;border-radius:8px;background:#000;display:block;max-height:360px}
+.modal-meta{font-size:.78rem;color:var(--txd);margin-top:.6rem}
+
+/* ─── RENDER BUTTON ─── */
+.render-row{display:flex;gap:.75rem;align-items:center;margin-top:1.1rem}
+#btnRender{flex:1;background:linear-gradient(135deg,var(--ok),#059669);border:none;
+  border-radius:10px;padding:.85rem;font-size:.95rem;font-weight:700;color:#fff;
+  cursor:pointer;transition:all .22s}
+#btnRender:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 24px rgba(16,185,129,.35)}
+#btnRender:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.render-note{font-size:.78rem;color:var(--txd)}
+
+/* ─── OUTPUT ─── */
+.out-card{display:none}
+.out-card.show{display:block}
+.out-ttl{color:var(--ok);font-weight:700;font-size:1rem;margin-bottom:1.1rem;display:flex;align-items:center;gap:.5rem}
+.outvid{width:100%;border-radius:8px;background:#000;display:block;margin-bottom:1.1rem;max-height:420px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:.65rem;margin-bottom:1.1rem}
+.stat{background:var(--bg3);border-radius:8px;padding:.9rem;text-align:center}
+.sv{font-size:1.4rem;font-weight:900;color:var(--ac)}
+.sl{font-size:.72rem;color:var(--txd);margin-top:4px}
+#btnDl{width:100%;background:linear-gradient(135deg,var(--p),#5b21b6);border:none;
+  border-radius:10px;padding:.85rem;font-size:.95rem;font-weight:700;color:#fff;
+  cursor:pointer;transition:all .22s;margin-bottom:.6rem}
+#btnDl:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(124,58,237,.4)}
+#btnNew{width:100%;background:var(--bg3);border:1px solid var(--bor);color:var(--txd);
+  border-radius:10px;padding:.7rem;font-size:.85rem;cursor:pointer;transition:all .2s}
+#btnNew:hover{border-color:var(--p);color:var(--pl)}
+
+.compat{font-size:.73rem;color:var(--txd);text-align:center;margin-top:2rem;opacity:.6}
+
+@media(max-width:600px){
+  .grid2{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}
+  .logo{font-size:1.9rem}.segs-grid{grid-template-columns:1fr 1fr}
+  #btnMain{padding:.9rem 2rem;font-size:1.1rem}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hdr">
+  <div class="logo">🎮 AutoMontage<span class="ver">v2</span></div>
+  <div class="tagline">Находит убийства · взрывы · реакции стримера · смех — нарезает автоматически</div>
+</header>
+
+<!-- DROP -->
+<div class="drop" id="drop">
+  <input type="file" id="fin" accept="video/*" hidden>
+  <div class="drop-ico">🎬</div>
+  <div class="drop-ttl">Загрузи игровое видео</div>
+  <div class="drop-hint">Перетащи файл или нажми · MP4, AVI, MOV, MKV, WebM · до 4 ГБ</div>
+</div>
+
+<div class="card finfo" id="finfo">
+  <div style="font-size:1.9rem">🎬</div>
+  <div>
+    <div class="fname" id="fname"></div>
+    <div class="fmeta" id="fmeta"></div>
+  </div>
+  <button class="fclear" id="fclear">✕ Убрать</button>
+</div>
+
+<div class="err" id="errbox"></div>
+
+<!-- SETTINGS -->
+<div class="card settings-card" id="settingsCard">
+  <div class="sec-lbl">⚙️ Настройки обнаружения</div>
+  <div class="grid2">
+    <div class="sf">
+      <label>Чувствительность <span class="val" id="sensval">70%</span></label>
+      <input type="range" id="sens" min="10" max="95" value="70">
+    </div>
+    <div class="sf">
+      <label>Мин. длина клипа <span class="val">сек</span></label>
+      <input type="number" id="minc" value="2" min="1" max="30">
+    </div>
+    <div class="sf">
+      <label>Макс. длина клипа <span class="val">сек</span></label>
+      <input type="number" id="maxc" value="25" min="5" max="120">
+    </div>
+    <div class="sf">
+      <label>Буфер ДО момента <span class="val">сек</span></label>
+      <input type="number" id="padb" value="2" min="0" max="10">
+    </div>
+    <div class="sf">
+      <label>Буфер ПОСЛЕ момента <span class="val">сек</span></label>
+      <input type="number" id="pada" value="4" min="0" max="15">
+    </div>
+    <div class="sf col2">
+      <label>Типы моментов для поиска</label>
+      <div class="tags">
+        <div class="tag on" data-t="kills">🔫 Убийства</div>
+        <div class="tag on" data-t="exp">💥 Взрывы</div>
+        <div class="tag on" data-t="react">😱 Реакции</div>
+        <div class="tag on" data-t="laugh">😂 Смех</div>
+        <div class="tag on" data-t="action">⚡ Экшн</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="sec-lbl">🤖 AI-анализ кадров (Claude) — необязательно</div>
+  <div class="tog-row">
+    <span>Включить AI: распознаёт килл-фид, урон, взрывы на кадре</span>
+    <label class="tog"><input type="checkbox" id="aion"><span class="knob"></span></label>
+  </div>
+  <div id="apirow" style="display:none;margin-top:.75rem">
+    <div class="sf">
+      <label>API-ключ Anthropic</label>
+      <input type="password" id="apikey" placeholder="sk-ant-api03-...">
+    </div>
+  </div>
+  <div class="hint">
+    💡 <b>Без AI</b> — IIR-анализ звука: выстрелы (высокочастотные транзиенты), взрывы (суббасовые пики), реакции/смех (голосовая полоса 400–3500 Гц).<br>
+    🤖 <b>С AI</b> — Claude смотрит на кадры: килл-фид, цифры урона, вспышки. Бесплатный ключ на
+    <a href="https://console.anthropic.com" target="_blank" style="color:var(--ac)">console.anthropic.com</a>
+  </div>
+</div>
+
+<!-- MAIN BUTTON -->
+<div class="act">
+  <button id="btnMain" onclick="App.analyze()">🔍 АНАЛИЗИРОВАТЬ</button>
+</div>
+
+<!-- PROGRESS -->
+<div class="card prog-card" id="progCard">
+  <div class="steps" id="stepsRow"></div>
+  <div class="pbar"><div class="pfill" id="pfill"></div></div>
+  <div class="plbl" id="plbl">Инициализация...</div>
+  <div class="logbox" id="logbox"></div>
+</div>
+
+<!-- WAVEFORM -->
+<div class="card wf-card" id="wfCard">
+  <div class="sec-lbl">📈 Аудиограмма — найденные моменты</div>
+  <div class="wf-wrap">
+    <canvas id="wfCanvas" height="90"></canvas>
+    <div class="wf-cursor" id="wfCursor"></div>
+  </div>
+  <div class="wf-foot">
+    <span>0:00</span>
+    <span id="wfHover" style="color:var(--ac)"></span>
+    <span id="wfEnd">0:00</span>
+  </div>
+  <div class="wf-legend">
+    <div class="wf-leg-item"><div class="wf-dot" style="background:#ef4444"></div>🔫 Выстрелы/Убийства</div>
+    <div class="wf-leg-item"><div class="wf-dot" style="background:#f97316"></div>💥 Взрывы</div>
+    <div class="wf-leg-item"><div class="wf-dot" style="background:#a855f7"></div>😱 Реакции/Голос</div>
+    <div class="wf-leg-item"><div class="wf-dot" style="background:#eab308"></div>😂 Смех</div>
+  </div>
+</div>
+
+<!-- SEGMENTS EDITOR -->
+<div class="card segs-card" id="segsCard">
+  <div class="segs-hdr">
+    <div class="sec-lbl" style="margin:0">🎯 Найденные сегменты — нажми на карточку для предпросмотра</div>
+    <div class="segs-actions">
+      <button class="sa-btn" onclick="App.selectAll()">✅ Все</button>
+      <button class="sa-btn" onclick="App.selectNone()">❌ Никакие</button>
+    </div>
+  </div>
+  <div class="segs-counter" id="segsCounter"></div>
+  <div class="segs-grid" id="segsGrid" style="margin-top:.85rem"></div>
+  <div class="render-row">
+    <button id="btnRender" onclick="App.render()">🎬 Склеить выбранные</button>
+    <div class="render-note" id="renderNote"></div>
+  </div>
+</div>
+
+<!-- MODAL PREVIEW -->
+<div class="modal-bg" id="modalBg" onclick="App.closePreview(event)">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-ttl" id="modalTtl">Предпросмотр</div>
+      <button class="modal-close" onclick="App.closePreview()">✕</button>
+    </div>
+    <div class="modal-body">
+      <video id="previewVid" controls></video>
+      <div class="modal-meta" id="modalMeta"></div>
+    </div>
+  </div>
+</div>
+
+<!-- OUTPUT -->
+<div class="card out-card" id="outCard">
+  <div class="out-ttl">✅ Нарезка готова!</div>
+  <video class="outvid" id="outvid" controls></video>
+  <div class="stats">
+    <div class="stat"><div class="sv" id="sseg">0</div><div class="sl">клипов</div></div>
+    <div class="stat"><div class="sv" id="sdur">0:00</div><div class="sl">длина нарезки</div></div>
+    <div class="stat"><div class="sv" id="ssav">0%</div><div class="sl">вырезано скуки</div></div>
+    <div class="stat"><div class="sv" id="ssize">0 МБ</div><div class="sl">размер файла</div></div>
+  </div>
+  <button id="btnDl">⬇️ Скачать нарезку MP4</button>
+  <button id="btnNew" onclick="App.reset()">🔄 Новое видео</button>
+</div>
+
+<div class="compat">Chrome / Edge 90+ рекомендуется · При первом запуске страница может перезагрузиться (установка SharedArrayBuffer) — это нормально</div>
+</div>
+
+<!-- VIDEO PREVIEW MODAL SOURCE -->
+<video id="srcVid" style="display:none" preload="metadata" muted></video>
+
+<script type="module">
+/* ══════════════════════════════════════════════════════
+   UTILS
+══════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+const sh = id => $(id).classList.add('show');
+const hd = id => $(id).classList.remove('show');
+const ft = s => { const m = Math.floor(s / 60), sec = Math.floor(s % 60); return `${m}:${String(sec).padStart(2,'0')}`; };
+const fs = b => b > 1e9 ? `${(b/1e9).toFixed(1)} ГБ` : b > 1e6 ? `${(b/1e6).toFixed(1)} МБ` : `${(b/1e3).toFixed(0)} КБ`;
+
+function log(msg, cls = '') {
+  const box = $('logbox'), el = document.createElement('div');
+  el.className = 'le ' + cls; el.textContent = `[${new Date().toLocaleTimeString('ru')}] ${msg}`;
+  box.appendChild(el); box.scrollTop = box.scrollHeight;
+}
+function setP(pct, txt) { $('pfill').style.width = Math.min(100, pct) + '%'; $('plbl').textContent = txt; }
+function setSteps(done, active, total = 6) {
+  const row = $('stepsRow'); row.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const d = document.createElement('div');
+    d.className = 'step' + (i < done ? ' done' : i === active ? ' act' : '');
+    row.appendChild(d);
+  }
+}
+function showErr(msg) { $('errbox').textContent = msg; sh('errbox'); }
+function hideErr() { hd('errbox'); }
+
+/* ══════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════ */
+const state = {
+  file: null, dur: 0,
+  rmsData: [],        // {t, e}[]
+  moments: [],        // {t, type, e}[]
+  segs: [],           // {start, end, type, excluded}[]
+  blob: null,
+  ff: null, fetchFile: null,
+  busy: false,
+  srcUrl: null,
+  thumbCache: {}
+};
+
+/* ══════════════════════════════════════════════════════
+   UPLOAD / DRAG-DROP
+══════════════════════════════════════════════════════ */
+const drop = $('drop');
+drop.addEventListener('click', () => $('fin').click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+$('fin').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+$('fclear').addEventListener('click', () => App.reset());
+
+function loadFile(f) {
+  if (!f.type.startsWith('video/') && !/\.(mp4|avi|mov|mkv|webm|flv|wmv|ts|m2ts)$/i.test(f.name)) {
+    showErr('Поддерживаются видеофайлы: MP4, AVI, MOV, MKV, WebM, FLV'); return;
+  }
+  state.file = f; hideErr();
+  $('fname').textContent = f.name; $('fmeta').textContent = fs(f.size) + ' · читаем метаданные...';
+  sh('finfo'); sh('settingsCard'); $('btnMain').classList.add('show');
+
+  if (state.srcUrl) URL.revokeObjectURL(state.srcUrl);
+  state.srcUrl = URL.createObjectURL(f);
+  const sv = $('srcVid'); sv.src = state.srcUrl;
+  sv.onloadedmetadata = () => {
+    state.dur = sv.duration;
+    $('fmeta').textContent = `${fs(f.size)} · ${ft(sv.duration)} · ${sv.videoWidth}×${sv.videoHeight}`;
+  };
+}
+
+/* ══════════════════════════════════════════════════════
+   SETTINGS
+══════════════════════════════════════════════════════ */
+$('sens').oninput = function () { $('sensval').textContent = this.value + '%'; };
+$('aion').onchange = function () { $('apirow').style.display = this.checked ? 'block' : 'none'; };
+document.querySelectorAll('.tag').forEach(t => t.addEventListener('click', () => t.classList.toggle('on')));
+
+function cfg() {
+  return {
+    sens: parseInt($('sens').value) / 100,
+    minc: parseFloat($('minc').value) || 2,
+    maxc: parseFloat($('maxc').value) || 25,
+    padb: parseFloat($('padb').value) || 2,
+    pada: parseFloat($('pada').value) || 4,
+    ai: $('aion').checked, apiKey: $('apikey').value.trim(),
+    types: [...document.querySelectorAll('.tag.on')].map(t => t.dataset.t)
+  };
+}
+
+/* ══════════════════════════════════════════════════════
+   AUDIO ANALYSIS — IIR filters + windowed RMS per frequency band
+══════════════════════════════════════════════════════ */
+async function analyzeAudio(audioBuf, c) {
+  // ─────────────────────────────────────────────────────────────────────────
+  //  IIR FILTER APPROACH — O(n) per pass, no FFT needed, no allocation loops
+  //
+  //  Previously used Cooley-Tukey FFT but had two bugs:
+  //   1. Bit-reversal permutation ran AFTER butterfly (should be before)
+  //   2. New Float32Array allocated inside every loop iteration → GC hell
+  //      (for a 1h video: ~180 000 iterations × 2 arrays = browser freeze)
+  //
+  //  IIR one-pole LPF: y[n] = α·y[n-1] + (1−α)·x[n]
+  //  where α = exp(−2π·fc/sr)
+  //  Band separation by subtraction of consecutive LPFs.
+  // ─────────────────────────────────────────────────────────────────────────
+  const ch = audioBuf.getChannelData(0);
+  const sr = audioBuf.sampleRate;
+  const N  = ch.length;
+
+  log(`Аудио: ${ft(audioBuf.duration)} · ${sr} Гц · ${N.toLocaleString()} сэмплов`, 'linf');
+  setP(32, 'IIR-фильтры: разделяем частотные полосы...');
+
+  // ── one-pole LPF (single O(n) pass, zero allocations inside) ──────────
+  function lpf(src, cutHz) {
+    const a = Math.exp(-2 * Math.PI * cutHz / sr);
+    const b = 1 - a;
+    const out = new Float32Array(N);
+    let y = 0;
+    for (let i = 0; i < N; i++) { y = a * y + b * src[i]; out[i] = y; }
+    return out;
+  }
+
+  // Band boundaries (Hz):
+  //  sub-bass   0 – 120   explosions, heavy impacts
+  //  bass     120 – 400   weapon body, punches
+  //  voice    400 – 3500  speech, reactions, laughter
+  //  high    3500 – ∞     gunshot clicks, cymbals
+  const lp120  = lpf(ch, 120);
+  const lp400  = lpf(ch, 400);
+  const lp3500 = lpf(ch, 3500);
+  // yield to event loop between heavy passes so UI stays responsive
+  await new Promise(r => setTimeout(r, 0));
+
+  const subBand   = lp120;
+  const bassBand  = new Float32Array(N); for (let i=0;i<N;i++) bassBand[i]  = lp400[i]  - lp120[i];
+  const voiceBand = new Float32Array(N); for (let i=0;i<N;i++) voiceBand[i] = lp3500[i] - lp400[i];
+  const highBand  = new Float32Array(N); for (let i=0;i<N;i++) highBand[i]  = ch[i]     - lp3500[i];
+  await new Promise(r => setTimeout(r, 0));
+
+  // ── Windowed RMS per band ──────────────────────────────────────────────
+  const hopMs = 25, winMs = 50;
+  const hop = Math.floor(sr * hopMs / 1000);   // ~551 samples @ 22050 Hz
+  const win = Math.floor(sr * winMs / 1000);   // ~1102 samples
+
+  setP(38, 'Вычисляем RMS по полосам...');
+
+  function windowedRMS(band) {
+    const out = [];
+    // Sliding sum for efficiency: O(n) total, not O(n·win)
+    let sum = 0;
+    for (let j = 0; j < win && j < N; j++) sum += band[j] * band[j];
+    out.push({ t: 0, e: Math.sqrt(sum / win) });
+
+    for (let i = hop; i + win < N; i += hop) {
+      // Add new samples, remove old ones
+      for (let j = i - hop; j < i; j++)         sum -= band[j] * band[j];
+      for (let j = i - hop + win; j < i + win; j++) sum += band[j] * band[j];
+      out.push({ t: i / sr, e: Math.sqrt(Math.max(0, sum) / win) });
+    }
+    return out;
+  }
+
+  const rmsAll   = windowedRMS(ch);
+  const rmsSub   = windowedRMS(subBand);
+  const rmsBass  = windowedRMS(bassBand);
+  const rmsVoice = windowedRMS(voiceBand);
+  const rmsHigh  = windowedRMS(highBand);
+  await new Promise(r => setTimeout(r, 0));
+
+  state.rmsData = rmsAll;
+
+  // ── Adaptive threshold ────────────────────────────────────────────────
+  function bandStats(arr) {
+    const vals = arr.map(x => x.e);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const std  = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+    return { mean, std };
+  }
+
+  const k = 1.0 + (1 - c.sens) * 3.2;  // sens=0.95→k=1.16  sens=0.10→k=3.88
+
+  const stSub   = bandStats(rmsSub);
+  const stBass  = bandStats(rmsBass);
+  const stVoice = bandStats(rmsVoice);
+  const stHigh  = bandStats(rmsHigh);
+
+  const thrSub   = stSub.mean   + k * stSub.std;
+  const thrBass  = stBass.mean  + k * stBass.std;
+  const thrVoice = stVoice.mean + k * 0.85 * stVoice.std;  // slightly easier for voice
+  const thrHigh  = stHigh.mean  + k * 0.80 * stHigh.std;   // easier: gunshots are brief
+
+  log(`k=${k.toFixed(2)} · тhr суббас=${thrSub.toFixed(5)} голос=${thrVoice.toFixed(5)} высокие=${thrHigh.toFixed(5)}`, 'linf');
+
+  // ── Moment detection ──────────────────────────────────────────────────
+  setP(44, 'Ищем интересные моменты...');
+  const moments = [];
+  const lastT   = {};
+
+  // Local-maximum peaks above threshold with minimum gap (cooldown)
+  function findPeaks(arr, thr, type, gap) {
+    if (!c.types.includes(type)) return;
+    for (let i = 1; i < arr.length - 1; i++) {
+      if (arr[i].e > thr && arr[i].e >= arr[i-1].e && arr[i].e >= arr[i+1].e) {
+        const t = arr[i].t;
+        if (!lastT[type] || t - lastT[type] > gap) {
+          moments.push({ t, type, e: arr[i].e });
+          lastT[type] = t;
+        }
+      }
+    }
+  }
+
+  // 🔫 Gunshots — transient ratio spike in high band (sudden ×3.5 jump)
+  if (c.types.includes('kills')) {
+    for (let i = 5; i < rmsHigh.length - 1; i++) {
+      const prevAvg = (rmsHigh[i-1].e + rmsHigh[i-2].e + rmsHigh[i-3].e + rmsHigh[i-4].e) / 4;
+      const ratio   = rmsHigh[i].e / (prevAvg + 1e-10);
+      if (ratio > 3.5 && rmsHigh[i].e > thrHigh) {
+        const t = rmsHigh[i].t;
+        if (!lastT['kills'] || t - lastT['kills'] > 0.30) {
+          moments.push({ t, type: 'kills', e: rmsHigh[i].e });
+          lastT['kills'] = t;
+        }
+      }
+    }
+  }
+
+  // 💥 Explosions — sub-bass peaks
+  findPeaks(rmsSub, thrSub, 'exp', 0.55);
+
+  // ⚡ General action — bass-band peaks (weapon body, impacts)
+  findPeaks(rmsBass, thrBass, 'action', 0.40);
+
+  // 😱 Reactions — voice-band peaks (screaming, shouting)
+  findPeaks(rmsVoice, thrVoice, 'react', 0.50);
+
+  // 😂 Laughter — sustained voice activity (≥350 ms above 65% threshold)
+  if (c.types.includes('laugh')) {
+    const minRun = Math.ceil(350 / hopMs);
+    let run = 0;
+    for (let i = 0; i < rmsVoice.length; i++) {
+      run = rmsVoice[i].e > thrVoice * 0.65 ? run + 1 : 0;
+      if (run === minRun) {
+        const t = rmsVoice[Math.max(0, i - Math.floor(minRun / 2))].t;
+        if (!lastT['laugh'] || t - lastT['laugh'] > 2.0) {
+          moments.push({ t, type: 'laugh', e: rmsVoice[i].e });
+          lastT['laugh'] = t;
+        }
+      }
+    }
+  }
+
+  // ── Deduplicate moments within 200 ms ────────────────────────────────
+  moments.sort((a, b) => a.t - b.t);
+  const deduped = [], seen = new Set();
+  for (const m of moments) {
+    const bucket = Math.round(m.t * 5);   // 200 ms buckets
+    if (!seen.has(bucket)) { seen.add(bucket); deduped.push(m); }
+  }
+
+  const counts = {};
+  deduped.forEach(m => counts[m.type] = (counts[m.type] || 0) + 1);
+  log('Найдено: ' + (Object.entries(counts).map(([t,n]) => `${t}:${n}`).join(' · ') || 'ничего'));
+  return deduped;
+}
+
+function buildSegs(moments, c, dur) {
+  const raw = moments.map(m => ({
+    start: Math.max(0, m.t - c.padb),
+    end:   Math.min(dur, m.t + c.pada),
+    type:  m.type
+  })).sort((a,b) => a.start - b.start);
+
+  const merged = [];
+  for (const s of raw) {
+    if (!merged.length || s.start > merged[merged.length-1].end + 0.1) {
+      merged.push({...s, excluded: false});
+    } else {
+      const last = merged[merged.length-1];
+      last.end = Math.max(last.end, s.end);
+    }
+  }
+  return merged.filter(s => {
+    const d = s.end - s.start; return d >= c.minc && d <= c.maxc;
+  });
+}
+
+/* ══════════════════════════════════════════════════════
+   WAVEFORM CANVAS
+══════════════════════════════════════════════════════ */
+function drawWaveform(rmsArr, moments, segs, dur) {
+  const canvas = $('wfCanvas');
+  const W = canvas.offsetWidth || 860; canvas.width = W; canvas.height = 90;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, 90);
+
+  if (!rmsArr.length) return;
+
+  const maxE = Math.max(...rmsArr.map(r => r.e)) || 1;
+  const H = 90, mid = H / 2;
+
+  // Draw waveform bars
+  const step = Math.max(1, Math.floor(rmsArr.length / W));
+  ctx.fillStyle = 'rgba(124,58,237,0.35)';
+  for (let x = 0; x < W; x++) {
+    const idx = Math.floor(x / W * rmsArr.length);
+    let maxVal = 0;
+    for (let j = idx; j < Math.min(idx + step, rmsArr.length); j++) maxVal = Math.max(maxVal, rmsArr[j].e);
+    const h = Math.max(1, (maxVal / maxE) * (mid - 4));
+    ctx.fillRect(x, mid - h, 1, h * 2);
+  }
+
+  // Highlight segments
+  for (const s of segs) {
+    const x1 = s.start / dur * W, x2 = s.end / dur * W;
+    ctx.fillStyle = s.excluded ? 'rgba(239,68,68,0.08)' : 'rgba(6,182,212,0.12)';
+    ctx.fillRect(x1, 0, x2 - x1, H);
+    ctx.strokeStyle = s.excluded ? 'rgba(239,68,68,0.4)' : 'rgba(6,182,212,0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x1, 0, x2 - x1, H);
+  }
+
+  // Type colors
+  const typeColors = {kills:'#ef4444',exp:'#f97316',react:'#a855f7',laugh:'#eab308',action:'#06b6d4'};
+
+  // Draw moment markers
+  for (const m of moments) {
+    const x = m.t / dur * W;
+    const col = typeColors[m.type] || '#fff';
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, 8, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, 8, 4, 0, Math.PI * 2); ctx.stroke();
+    // Vertical line
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = col; ctx.fillRect(x - 0.5, 12, 1, H - 12);
+    ctx.globalAlpha = 1;
+  }
+
+  $('wfEnd').textContent = ft(dur);
+
+  // Canvas hover
+  canvas.onmousemove = e => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const t = x * dur;
+    $('wfHover').textContent = ft(t);
+    const cur = $('wfCursor');
+    cur.style.display = 'block';
+    cur.style.left = (x * 100) + '%';
+  };
+  canvas.onmouseleave = () => {
+    $('wfCursor').style.display = 'none';
+    $('wfHover').textContent = '';
+  };
+}
+
+/* ══════════════════════════════════════════════════════
+   THUMBNAIL GRABBER
+══════════════════════════════════════════════════════ */
+async function grabThumb(t) {
+  if (state.thumbCache[t]) return state.thumbCache[t];
+  const vid = $('srcVid');
+  vid.currentTime = t;
+  await new Promise(res => {
+    const h = () => { vid.removeEventListener('seeked', h); res(); };
+    vid.addEventListener('seeked', h);
+    setTimeout(res, 2000);
+  });
+  const W = Math.min(vid.videoWidth || 320, 320);
+  const H = Math.round(W * (vid.videoHeight || 180) / (vid.videoWidth || 320));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  c.getContext('2d').drawImage(vid, 0, 0, W, H);
+  const url = c.toDataURL('image/jpeg', 0.6);
+  state.thumbCache[t] = url;
+  return url;
+}
+
+/* ══════════════════════════════════════════════════════
+   SEGMENTS EDITOR
+══════════════════════════════════════════════════════ */
+const typeLabels = {kills:'🔫 УБИЙСТВО',exp:'💥 ВЗРЫВ',react:'😱 РЕАКЦИЯ',laugh:'😂 СМЕХ',action:'⚡ ЭКШН'};
+
+function updateSegCounter() {
+  const total = state.segs.length;
+  const on = state.segs.filter(s => !s.excluded).length;
+  const dur = state.segs.filter(s => !s.excluded).reduce((a,s) => a + s.end - s.start, 0);
+  $('segsCounter').textContent = `Выбрано ${on} из ${total} · итого ~${ft(dur)}`;
+  $('btnRender').disabled = on === 0;
+  $('renderNote').textContent = on === 0 ? 'Выбери хотя бы один сегмент' : `Склеим ${on} клипов (~${ft(dur)})`;
+}
+
+async function renderSegCards() {
+  const grid = $('segsGrid'); grid.innerHTML = '';
+  for (let i = 0; i < state.segs.length; i++) {
+    const s = state.segs[i];
+    const mid = (s.start + s.end) / 2;
+
+    const card = document.createElement('div');
+    card.className = 'sc' + (s.excluded ? ' excluded' : '');
+    card.id = `sc_${i}`;
+
+    // Thumbnail placeholder
+    const previewWrap = document.createElement('div');
+    previewWrap.className = 'sc-preview';
+    previewWrap.innerHTML = `<img class="sc-thumb" id="th_${i}" src="" alt="">
+      <div class="sc-play-btn"><div class="sc-play-icon">▶</div></div>
+      <div class="sc-overlay"><div class="sc-overlay-txt">ИСКЛЮЧЁН</div></div>`;
+    previewWrap.addEventListener('click', () => App.openPreview(i));
+
+    const body = document.createElement('div');
+    body.className = 'sc-body';
+    body.innerHTML = `
+      <div class="sc-type ${s.type}">${typeLabels[s.type] || '⚡ МОМЕНТ'}</div>
+      <div class="sc-time">${ft(s.start)} – ${ft(s.end)}</div>
+      <div class="sc-dur">Длина: ${ft(s.end - s.start)}</div>
+      <div class="sc-footer">
+        <button class="sc-btn ${s.excluded ? 'incl' : 'exc'}" onclick="App.toggleSeg(${i})">
+          ${s.excluded ? '✅ Включить' : '❌ Исключить'}
+        </button>
+      </div>`;
+
+    card.appendChild(previewWrap); card.appendChild(body);
+    grid.appendChild(card);
+
+    // Load thumb async
+    grabThumb(mid).then(url => {
+      const img = $(`th_${i}`);
+      if (img) { img.src = url; img.onerror = () => { img.style.display='none'; }; }
+    });
+  }
+
+  updateSegCounter();
+  sh('segsCard');
+}
+
+/* ══════════════════════════════════════════════════════
+   PREVIEW MODAL
+══════════════════════════════════════════════════════ */
+window._previewSrc = null;
+
+function openPreview(idx) {
+  const s = state.segs[idx];
+  const vid = $('previewVid');
+  vid.src = state.srcUrl;
+  vid.currentTime = s.start;
+
+  $('modalTtl').textContent = `${typeLabels[s.type]||'Момент'} · ${ft(s.start)} – ${ft(s.end)}`;
+  $('modalMeta').textContent = `Длина: ${ft(s.end - s.start)} · Кадр: ${ft(s.start)}`;
+  sh('modalBg');
+
+  vid.ontimeupdate = () => { if (vid.currentTime >= s.end) { vid.pause(); vid.currentTime = s.start; } };
+  vid.play().catch(()=>{});
+}
+
+function closePreview(e) {
+  if (e && e.target !== $('modalBg')) return;
+  const vid = $('previewVid'); vid.pause(); vid.src = '';
+  hd('modalBg');
+}
+
+/* ══════════════════════════════════════════════════════
+   AI FRAME CHECK
+══════════════════════════════════════════════════════ */
+async function grabFrame(t) {
+  const vid = $('srcVid'); vid.currentTime = t;
+  await new Promise(res => { const h = () => { vid.removeEventListener('seeked',h); res(); }; vid.addEventListener('seeked',h); setTimeout(res,2000); });
+  const W = Math.min(vid.videoWidth||640,640);
+  const H = Math.round(W*(vid.videoHeight||360)/(vid.videoWidth||640));
+  const c = document.createElement('canvas'); c.width=W; c.height=H;
+  c.getContext('2d').drawImage(vid,0,0,W,H);
+  return c.toDataURL('image/jpeg',0.5).split(',')[1];
+}
+
+async function aiCheck(b64, key) {
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':key,
+               'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:80,
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+          {type:'text',text:'Кадр из шутера. Хайлайт? Ищи: килл-фид, урон, смерть врага, взрыв, низкий HP. Ответь ТОЛЬКО JSON: {"h":true/false,"c":0.0-1.0,"type":"kills|exp|react|action"}'}
+        ]}]})
+    });
+    const d = await r.json();
+    if (d.error) { log('AI ошибка: ' + (d.error.message||'?'), 'lwarn'); return {h:true,c:0.5}; }
+    const txt = (d.content?.[0]?.text||'{"h":true,"c":0.5}').replace(/```json?|```/g,'').trim();
+    return JSON.parse(txt);
+  } catch(e) { log('AI запрос не удался: ' + e.message, 'lwarn'); return {h:true,c:0.5}; }
+}
+
+/* ══════════════════════════════════════════════════════
+   FFMPEG LOADER
+══════════════════════════════════════════════════════ */
+async function loadFFmpeg() {
+  log('Загружаем FFmpeg WebAssembly (~26 МБ)...', 'linf');
+  const { FFmpeg } = await import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10');
+  const { toBlobURL, fetchFile } = await import('https://esm.sh/@ffmpeg/util@0.12.1');
+  window.__fetchFile = fetchFile;
+
+  const ff = new FFmpeg();
+  ff.on('log', ({ message }) => { if (/error/i.test(message)) log(message.slice(0,120), 'lerr'); });
+
+  const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+  let lastPct = 0;
+  const mkProg = lbl => ({ received, total }) => {
+    const pct = total ? Math.round(received / total * 100) : 0;
+    if (pct !== lastPct) { lastPct = pct; setP(2 + pct * 0.1, `${lbl}: ${pct}% (${fs(received)})`); }
+  };
+
+  const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript',  true, mkProg('Core JS'));
+  lastPct = 0;
+  const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm', true, mkProg('WASM'));
+  await ff.load({ coreURL, wasmURL });
+  log('FFmpeg загружен ✓', 'lok');
+  return { ff, fetchFile };
+}
+
+async function extractAudio(ff, fetchFile) {
+  log('Записываем видео в VFS...', 'linf');
+  await ff.writeFile('inp.mp4', await fetchFile(state.file));
+  log('Извлекаем аудио (PCM 22050Hz)...', 'linf');
+  await ff.exec(['-i','inp.mp4','-vn','-acodec','pcm_s16le','-ar','22050','-ac','1','aud.wav']);
+  const wav = await ff.readFile('aud.wav');
+  log(`Аудио: ${fs(wav.byteLength)}`);
+  const ctx = new AudioContext({sampleRate:22050});
+  const buf = await ctx.decodeAudioData(wav.buffer.slice(0));
+  await ctx.close();
+  return buf;
+}
+
+async function cutMerge(ff, segs) {
+  log(`Нарезаем ${segs.length} клипов...`, 'linf');
+  const names = [];
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i], name = `s${i}.mp4`;
+    log(`[${i+1}/${segs.length}]  ${ft(s.start)} → ${ft(s.end)}  (${ft(s.end-s.start)})`);
+    await ff.exec(['-ss',s.start.toFixed(3),'-i','inp.mp4','-t',(s.end-s.start).toFixed(3),'-c','copy','-avoid_negative_ts','1',name]);
+    names.push(name);
+    setP(70 + i / segs.length * 25, `Нарезаем ${i+1}/${segs.length}`);
+  }
+  log('Объединяем...', 'linf');
+  const lst = names.map(n => `file '${n}'`).join('\n');
+  await ff.writeFile('lst.txt', new TextEncoder().encode(lst));
+  await ff.exec(['-f','concat','-safe','0','-i','lst.txt','-c','copy','out.mp4']);
+  const data = await ff.readFile('out.mp4');
+  log(`Готово: ${fs(data.byteLength)}`, 'lok');
+  try { for (const n of ['inp.mp4','aud.wav','lst.txt',...names]) await ff.deleteFile(n).catch(()=>{}); } catch{}
+  return new Blob([data.buffer], {type:'video/mp4'});
+}
+
+/* ══════════════════════════════════════════════════════
+   MAIN FLOWS
+══════════════════════════════════════════════════════ */
+async function analyze() {
+  if (!state.file) { showErr('Сначала загрузи видео!'); return; }
+  if (state.busy) return;
+  const c = cfg();
+  if (c.ai && !c.apiKey) { showErr('Включён AI — введи API-ключ или отключи AI'); return; }
+
+  state.busy = true; hideErr();
+  $('btnMain').disabled = true;
+  $('logbox').innerHTML = '';
+  hd('outCard'); hd('wfCard'); hd('segsCard');
+  sh('progCard');
+
+  try {
+    // ── Load FFmpeg ──
+    setSteps(0,0); setP(2,'Загружаем FFmpeg...');
+    if (!state.ff) {
+      const { ff, fetchFile } = await loadFFmpeg();
+      state.ff = ff; state.fetchFile = fetchFile;
+    } else { log('FFmpeg уже загружен ✓', 'lok'); }
+
+    // ── Extract audio ──
+    setSteps(1,1); setP(15,'Извлекаем аудио...');
+    const audioBuf = await extractAudio(state.ff, state.fetchFile);
+
+    // ── FFT Audio Analysis ──
+    setSteps(2,2); setP(30,'IIR-анализ звука по полосам...');
+    const moments = await analyzeAudio(audioBuf, c);
+    state.moments = moments;
+
+    if (!moments.length)
+      throw new Error('Интересных моментов не найдено. Увеличь чувствительность или выбери больше типов событий.');
+
+    const dur = state.dur || (moments[moments.length-1].t + c.pada + 5);
+    state.segs = buildSegs(moments, c, dur);
+    log(`Сегментов: ${state.segs.length}`);
+
+    if (!state.segs.length)
+      throw new Error('Сегменты не сформированы. Уменьши "Мин. длину клипа" или повысь чувствительность.');
+
+    // ── AI Check ──
+    if (c.ai && c.apiKey) {
+      setSteps(3,3); setP(42,'AI-анализ кадров...');
+      const kept = [];
+      for (let i = 0; i < state.segs.length; i++) {
+        const s = state.segs[i];
+        setP(42 + i/state.segs.length*22, `AI: ${i+1}/${state.segs.length}`);
+        const b64 = await grabFrame((s.start+s.end)/2);
+        const res = await aiCheck(b64, c.apiKey);
+        const ok  = res.h !== false || (res.c||0) >= 0.3;
+        if (res.type && ok) s.type = res.type;
+        log(`[${ft((s.start+s.end)/2)}] ${ok?'✅':'❌'} уверенность ${Math.round((res.c||0)*100)}%`);
+        if (ok) kept.push(s);
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (kept.length > 0) { state.segs = kept; log(`AI подтвердил: ${kept.length}`, 'lok'); }
+      else log('AI отклонил все — используем аудиоанализ', 'lwarn');
+    }
+
+    // ── Draw waveform ──
+    setSteps(4,4); setP(68,'Строим аудиограмму...');
+    sh('wfCard');
+    setTimeout(() => drawWaveform(state.rmsData, state.moments, state.segs, dur), 50);
+
+    // ── Render segment cards with thumbnails ──
+    setSteps(5,5); setP(80,'Генерируем превью...');
+    await renderSegCards();
+
+    setP(100,'✅ Анализ завершён!');
+    log(`Готово! Найдено ${state.segs.length} моментов. Просмотри и нажми "Склеить".`, 'lok');
+
+    $('segsCard').scrollIntoView({ behavior:'smooth', block:'start' });
+
+    // Change main button to re-analyze
+    $('btnMain').textContent = '🔄 Повторить анализ';
+    $('btnMain').disabled = false;
+
+  } catch(e) {
+    log('ОШИБКА: ' + e.message, 'lerr');
+    showErr('Ошибка: ' + e.message);
+    console.error(e);
+    $('btnMain').disabled = false;
+  } finally {
+    state.busy = false;
+  }
+}
+
+async function render() {
+  const active = state.segs.filter(s => !s.excluded);
+  if (!active.length) { showErr('Нет выбранных сегментов!'); return; }
+  if (state.busy) return;
+
+  state.busy = true; $('btnRender').disabled = true;
+  $('logbox').innerHTML = '';
+  hd('outCard'); sh('progCard');
+  setSteps(0,0,3); setP(5,'Рендеринг...');
+
+  try {
+    log(`Склеиваем ${active.length} клипов...`, 'linf');
+    setSteps(1,1,3); setP(10,'Нарезаем клипы...');
+    const blob = await cutMerge(state.ff, active);
+    state.blob = blob;
+
+    setSteps(3,3,3); setP(100,'✅ Готово!');
+    log('🎉 Нарезка готова!', 'lok');
+
+    const totalDur = active.reduce((s,x) => s + x.end - x.start, 0);
+    const saved    = state.dur > 0 ? Math.max(0, Math.round((1 - totalDur/state.dur)*100)) : 0;
+    $('sseg').textContent = active.length;
+    $('sdur').textContent = ft(totalDur);
+    $('ssav').textContent = saved + '%';
+    $('ssize').textContent = fs(blob.size);
+
+    const url = URL.createObjectURL(blob);
+    $('outvid').src = url;
+    $('btnDl').onclick = () => {
+      const a = document.createElement('a');
+      a.href = url; a.download = 'automontage_' + state.file.name.replace(/\.[^.]+$/,'') + '.mp4';
+      a.click();
+    };
+    sh('outCard');
+    $('outCard').scrollIntoView({ behavior:'smooth', block:'start' });
+
+  } catch(e) {
+    log('ОШИБКА рендера: ' + e.message, 'lerr');
+    showErr('Ошибка рендера: ' + e.message);
+    console.error(e);
+  } finally {
+    state.busy = false; $('btnRender').disabled = false;
+  }
+}
+
+function toggleSeg(idx) {
+  const s = state.segs[idx]; s.excluded = !s.excluded;
+  const card = $(`sc_${idx}`);
+  if (s.excluded) card.classList.add('excluded'); else card.classList.remove('excluded');
+  const btn = card.querySelector('.sc-btn');
+  if (s.excluded) { btn.textContent = '✅ Включить'; btn.className = 'sc-btn incl'; }
+  else            { btn.textContent = '❌ Исключить'; btn.className = 'sc-btn exc'; }
+  updateSegCounter();
+  drawWaveform(state.rmsData, state.moments, state.segs, state.dur);
+}
+
+function selectAll()  { state.segs.forEach((_,i) => { state.segs[i].excluded = false; }); renderSegCards(); drawWaveform(state.rmsData,state.moments,state.segs,state.dur); }
+function selectNone() { state.segs.forEach((_,i) => { state.segs[i].excluded = true; }); renderSegCards(); drawWaveform(state.rmsData,state.moments,state.segs,state.dur); }
+
+function reset() {
+  if (state.srcUrl) { URL.revokeObjectURL(state.srcUrl); state.srcUrl = null; }
+  state.file = null; state.dur = 0; state.rmsData = []; state.moments = [];
+  state.segs = []; state.blob = null; state.thumbCache = {};
+  $('srcVid').src = '';
+  ['finfo','settingsCard','progCard','wfCard','segsCard','outCard','errbox'].forEach(hd);
+  $('btnMain').classList.remove('show'); $('btnMain').disabled = false;
+  $('btnMain').textContent = '🔍 АНАЛИЗИРОВАТЬ';
+  $('fin').value = ''; $('logbox').innerHTML = '';
+}
+
+/* ══════════════════════════════════════════════════════
+   PUBLIC API
+══════════════════════════════════════════════════════ */
+window.App = { analyze, render, toggleSeg, selectAll, selectNone, reset, openPreview, closePreview };
+</script>
+</body>
+</html>
