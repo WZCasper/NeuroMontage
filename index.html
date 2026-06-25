@@ -290,24 +290,32 @@ canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:cr
     </div>
     <div class="sf">
       <label>Макс. длина клипа <span class="val">сек</span></label>
-      <input type="number" id="maxc" value="25" min="5" max="120">
+      <input type="number" id="maxc" value="12" min="3" max="60">
     </div>
     <div class="sf">
       <label>Буфер ДО момента <span class="val">сек</span></label>
-      <input type="number" id="padb" value="2" min="0" max="10">
+      <input type="number" id="padb" value="1" min="0" max="10">
     </div>
     <div class="sf">
       <label>Буфер ПОСЛЕ момента <span class="val">сек</span></label>
-      <input type="number" id="pada" value="4" min="0" max="15">
+      <input type="number" id="pada" value="1" min="0" max="15">
     </div>
     <div class="sf col2">
-      <label>Типы моментов для поиска</label>
+      <label>Типы моментов — Warzone 2026</label>
       <div class="tags">
-        <div class="tag on" data-t="kills">🔫 Убийства</div>
-        <div class="tag on" data-t="exp">💥 Взрывы</div>
-        <div class="tag on" data-t="react">😱 Реакции</div>
-        <div class="tag on" data-t="laugh">😂 Смех</div>
-        <div class="tag on" data-t="action">⚡ Экшн</div>
+        <div class="tag on"  data-t="kills">🔫 Убийство</div>
+        <div class="tag on"  data-t="multikill">🎯 Мульти-килл</div>
+        <div class="tag on"  data-t="exp">💥 Взрыв</div>
+        <div class="tag on"  data-t="react">😱 Крик стримера</div>
+        <div class="tag on"  data-t="laugh">😂 Смех</div>
+        <div class="tag on"  data-t="eyecontact">👁️ Зрительный контакт</div>
+        <div class="tag on"  data-t="neardeath">❤️ Низкое HP</div>
+        <div class="tag on"  data-t="squadwipe">💀 Вайп отряда</div>
+        <div class="tag"     data-t="gulag">🎮 Гулаг 1v1</div>
+        <div class="tag"     data-t="sniper">🎯 Снайперский шот</div>
+        <div class="tag"     data-t="vehicle">🚁 Транспорт</div>
+        <div class="tag"     data-t="victory">🏆 Победа</div>
+        <div class="tag"     data-t="action">⚡ Общий экшн</div>
       </div>
     </div>
   </div>
@@ -950,121 +958,145 @@ async function grabFrame(t) {
   return c;
 }
 
-// ── MODE 1: Browser heuristics (free, no key) ──────────────────────────────
+// ── MODE 1: Browser heuristics — Warzone 2026 tuned ───────────────────────
 function analyzeFrameBrowser(canvas) {
-  const W = canvas.width, H = canvas.height;
-  const d = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+  const W=canvas.width, H=canvas.height;
+  const d=canvas.getContext('2d').getImageData(0,0,W,H).data;
 
-  function region(x1f, y1f, x2f, y2f) {
-    const x1=Math.floor(x1f*W), y1=Math.floor(y1f*H);
-    const x2=Math.floor(x2f*W), y2=Math.floor(y2f*H);
-    let r=0,g=0,b=0,lum=0,contrast=0,n=0,prevL=0;
-    for (let y=y1; y<y2; y++) {
-      for (let x=x1; x<x2; x++) {
-        const i=(y*W+x)*4;
-        const ri=d[i],gi=d[i+1],bi=d[i+2];
-        const L=0.299*ri+0.587*gi+0.114*bi;
-        r+=ri; g+=gi; b+=bi; lum+=L;
-        contrast+=Math.abs(L-prevL); prevL=L; n++;
-      }
+  function reg(x1f,y1f,x2f,y2f) {
+    const x1=Math.floor(x1f*W),y1=Math.floor(y1f*H),x2=Math.floor(x2f*W),y2=Math.floor(y2f*H);
+    let r=0,g=0,b=0,lum=0,contrast=0,skinPx=0,n=0,prevL=0;
+    for(let y=y1;y<y2;y++) for(let x=x1;x<x2;x++){
+      const i=(y*W+x)*4,ri=d[i],gi=d[i+1],bi=d[i+2];
+      const L=0.299*ri+0.587*gi+0.114*bi;
+      r+=ri;g+=gi;b+=bi;lum+=L;contrast+=Math.abs(L-prevL);prevL=L;n++;
+      if(ri>90&&ri>gi*1.15&&gi>bi*1.2&&ri<235&&L>50&&L<210) skinPx++;
     }
-    return n ? {r:r/n,g:g/n,b:b/n,lum:lum/n,contrast:contrast/n} : {r:0,g:0,b:0,lum:0,contrast:0};
+    return n?{r:r/n,g:g/n,b:b/n,lum:lum/n,contrast:contrast/n,skin:skinPx/n}
+            :{r:0,g:0,b:0,lum:0,contrast:0,skin:0};
   }
 
-  let score=0, type='action';
+  let score=0,type='action';
   const signals=[];
 
-  // 🔫 Kill feed — top-right corner: high contrast text + red indicators
-  const kf = region(0.58, 0, 1.0, 0.22);
-  const kfC = Math.min(1, kf.contrast / 11);          // text-like contrast
-  const kfR = kf.r > 135 && kf.r > kf.g*1.25 ? 0.45 : 0;  // red tones
-  const kfS = kfC*0.65 + kfR*0.35;
-  if (kfS > 0.26) { score += kfS*0.50; type='kills'; signals.push(`килл-фид ${(kfS*100).toFixed(0)}%`); }
+  // Kill feed: top-right, white text + red/orange icons
+  const kf=reg(0.60,0,1.0,0.20);
+  const kfC=Math.min(1,kf.contrast/11);
+  const kfR=kf.r>140&&kf.r>kf.g*1.2&&kf.lum>55?0.45:0;
+  const kfS=kfC*0.65+kfR*0.35;
+  if(kfS>0.26){score+=kfS*0.45;type='kills';signals.push(`килл-фид ${(kfS*100).toFixed(0)}%`);}
 
-  // ❤️ Low HP — red vignette on screen edges
-  const edges = [region(0,0.1,.10,0.9), region(0.90,0.1,1,0.9), region(0.1,0.85,0.9,1)];
-  const edgeRed = edges.reduce((a,e) => a + Math.max(0,(e.r-Math.max(e.g,e.b))/255*(e.lum/200)), 0) / 3;
-  if (edgeRed > 0.04) { score += Math.min(0.5, edgeRed*6)*0.30; signals.push(`низкий HP ${(edgeRed*100).toFixed(0)}%`); }
+  // Near death: red vignette all edges
+  const eL=reg(0,0.05,.10,0.95),eR=reg(0.90,0.05,1,0.95),eB=reg(0.1,0.88,0.9,1),eT=reg(0.1,0,0.9,0.12);
+  const edgeRed=[eL,eR,eB,eT].reduce((a,e)=>a+Math.max(0,(e.r-Math.max(e.g,e.b))/255*(e.lum/220)),0)/4;
+  if(edgeRed>0.04){score+=Math.min(0.55,edgeRed*7)*0.35;type='neardeath';signals.push(`низкое HP ${(edgeRed*100).toFixed(0)}%`);}
 
-  // 💥 Explosion/flash — high brightness + orange tint in center
-  const cen = region(0.15, 0.10, 0.85, 0.90);
-  const isOrange = cen.r > cen.b*1.55 && cen.g > cen.b*1.15;
-  const isBright = cen.lum > 150;
-  if (isOrange && isBright) {
-    const fl = Math.min(1, (cen.lum-90)/130);
-    score += fl*0.45; type='exp'; signals.push(`взрыв/вспышка ${(fl*100).toFixed(0)}%`);
+  // Explosion: high brightness + orange tint
+  const cen=reg(0.10,0.08,0.90,0.92);
+  if(cen.r>cen.b*1.5&&cen.g>cen.b*1.1&&cen.lum>148){
+    const fl=Math.min(1,(cen.lum-95)/125);
+    score+=fl*0.45;type='exp';signals.push(`взрыв ${(fl*100).toFixed(0)}%`);
   }
 
-  // 🟡 Damage numbers — yellow/orange isolated bright spots in center area
+  // Victory: very bright + low saturation (white screen)
+  if(cen.lum>185){
+    const sat=Math.max(cen.r,cen.g,cen.b)-Math.min(cen.r,cen.g,cen.b);
+    if(sat<40){score+=0.6;type='victory';signals.push('экран победы');}
+  }
+
+  // Eye contact: webcam box in corner with skin tones
+  const corners=[reg(0,0.68,0.28,1),reg(0.72,0.68,1,1),reg(0.72,0,1,0.32),reg(0,0,0.28,0.32)];
+  const bestCam=Math.max(...corners.map(c=>c.skin));
+  const full=reg(0,0,1,1);
+  if(bestCam>0.12&&bestCam>full.skin*2.5){
+    score+=0.6;type='eyecontact';signals.push(`зрительный контакт (лицо ${(bestCam*100).toFixed(0)}%)`);
+  }
+
+  // Damage numbers: yellow/gold pixels in centre
   let spots=0;
-  for (let sy=0.25; sy<0.75; sy+=0.05) {
-    for (let sx=0.20; sx<0.80; sx+=0.05) {
-      const px=Math.floor(sx*W), py=Math.floor(sy*H), i=(py*W+px)*4;
-      if (d[i]>185 && d[i+1]>145 && d[i+2]<95) spots++; // yellow/gold pixel
-    }
+  for(let sy=0.22;sy<0.78;sy+=0.05) for(let sx=0.18;sx<0.82;sx+=0.05){
+    const px=Math.floor(sx*W),py=Math.floor(sy*H),i=(py*W+px)*4;
+    if(d[i]>185&&d[i+1]>148&&d[i+2]<90) spots++;
   }
-  if (spots > 3) { score += Math.min(1,spots/10)*0.20; signals.push(`урон (${spots} точек)`); }
+  if(spots>3){score+=Math.min(1,spots/10)*0.20;signals.push(`урон (${spots} px)`);}
 
-  // Scene saturation boost
-  const full = region(0,0,1,1);
-  const sat = Math.max(full.r,full.g,full.b) > 10
-    ? (Math.max(full.r,full.g,full.b)-Math.min(full.r,full.g,full.b)) / Math.max(full.r,full.g,full.b) : 0;
-  if (sat > 0.38 && full.lum > 65) score += sat*0.08;
-
-  return { h: score>0.20, c: Math.min(1,score), type, reason: signals.join(' · ')||'нет признаков' };
+  return{h:score>0.20,c:Math.min(1,score),type,reason:signals.join(' · ')||'нет признаков'};
 }
 
-// ── MODE 2: Google Gemini 1.5 Flash (free tier) ────────────────────────────
+// ── MODE 2: Google Gemini 1.5 Flash — Warzone 2026 tuned ──────────────────
 async function aiCheckGemini(canvas, key) {
-  const b64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
-  try {
-    const r = await fetch(
+  const b64=canvas.toDataURL('image/jpeg',0.65).split(',')[1];
+  const PROMPT=`You analyze Warzone 2026 gameplay for video highlight clips.
+
+Examine the screenshot carefully for these Warzone-specific elements:
+- KILL FEED (top-right): small white text lines with player names + skull/weapon icons = kill
+- DAMAGE NUMBERS: white or yellow floating numbers on screen
+- "ELIMINATED" or "KNOCKED" large text anywhere
+- "SQUAD WIPED" notification banner = very high value
+- LOW HEALTH: strong RED vignette pulsing around ALL screen edges
+- EXPLOSION: large orange/yellow flash covering 30%+ of screen
+- GULAG: prison/cage arena, 1v1 environment
+- VICTORY: bright white "WARZONE" logo or winner results screen
+- EYE CONTACT: webcam box in corner showing streamer face looking directly at camera
+- MULTI-KILL: 2+ names in kill feed simultaneously
+
+Respond with ONLY raw JSON, zero markdown, zero extra text:
+{"h":true,"c":0.87,"type":"kills","reason":"kill feed 2 entries top right"}
+
+type must be: kills multikill exp react neardeath squadwipe gulag victory eyecontact action
+If no highlight: {"h":false,"c":0.05,"type":"action","reason":"no highlights"}`;
+
+  try{
+    const r=await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{parts:[
-          { inline_data:{ mime_type:'image/jpeg', data:b64 }},
-          { text:'FPS game screenshot. Is this a highlight? Look for: kill feed (top-right), damage numbers, explosions, low HP red edges, enemy death. Reply ONLY JSON no markdown: {"h":true,"c":0.85,"type":"kills"}' }
-        ]}], generationConfig:{maxOutputTokens:80,temperature:0} })
-      }
+      {method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({
+         contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:b64}},{text:PROMPT}]}],
+         generationConfig:{maxOutputTokens:100,temperature:0,topP:0.05}
+       })}
     );
-    const d = await r.json();
-    if (d.error) { log('Gemini: ' + d.error.message, 'lwarn'); return {h:true,c:0.5}; }
-    const txt = (d.candidates?.[0]?.content?.parts?.[0]?.text || '{"h":true,"c":0.5}')
-      .replace(/```json?|```/g,'').trim();
-    return JSON.parse(txt);
-  } catch(e) { log('Gemini запрос не удался: '+e.message,'lwarn'); return {h:true,c:0.5}; }
+    const d=await r.json();
+    if(d.error){log('Gemini: '+d.error.message,'lwarn');return{h:true,c:0.5};}
+    const raw=(d.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+    const txt=raw.replace(/```json?|```|\n/g,'').trim();
+    if(!txt) return{h:false,c:0.1,type:'action'};
+    const res=JSON.parse(txt);
+    log(`Gemini [${res.type}] c=${res.c} — ${res.reason||''}`);
+    return res;
+  }catch(e){log('Gemini: '+e.message,'lwarn');return{h:true,c:0.5};}
 }
 
-// ── MODE 3: Claude Sonnet (paid, most accurate) ────────────────────────────
+// ── MODE 3: Claude Sonnet — Warzone 2026 tuned ────────────────────────────
 async function aiCheckClaude(canvas, key) {
-  const b64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+  const b64=canvas.toDataURL('image/jpeg',0.55).split(',')[1];
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':key,
                'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:80,
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:100,
         messages:[{role:'user',content:[
           {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
-          {type:'text',text:'Кадр из шутера. Хайлайт? Ищи: килл-фид, урон, смерть врага, взрыв, низкий HP. Ответь ТОЛЬКО JSON: {"h":true/false,"c":0.0-1.0,"type":"kills|exp|react|action"}'}
+          {type:'text',text:'Warzone 2026 screenshot. Highlight? Check: kill feed top-right, damage numbers, ELIMINATED text, SQUAD WIPED, red vignette edges=low HP, orange flash=explosion, gulag arena, victory screen, webcam corner with face=eye contact, 2+ kills in feed=multikill. ONLY JSON: {"h":true/false,"c":0.0-1.0,"type":"kills|multikill|exp|react|neardeath|squadwipe|gulag|victory|eyecontact|action","reason":"brief"}'}
         ]}]})
     });
-    const d = await r.json();
-    if (d.error) { log('Claude: '+d.error.message,'lwarn'); return {h:true,c:0.5}; }
-    const txt = (d.content?.[0]?.text||'{"h":true,"c":0.5}').replace(/```json?|```/g,'').trim();
+    const d=await r.json();
+    if(d.error){log('Claude: '+d.error.message,'lwarn');return{h:true,c:0.5};}
+    const txt=(d.content?.[0]?.text||'{"h":true,"c":0.5}').replace(/```json?|```/g,'').trim();
     return JSON.parse(txt);
-  } catch(e) { log('Claude запрос не удался: '+e.message,'lwarn'); return {h:true,c:0.5}; }
+  }catch(e){log('Claude: '+e.message,'lwarn');return{h:true,c:0.5};}
 }
 
 // ── Router ─────────────────────────────────────────────────────────────────
-async function checkFrame(canvas, c) {
-  switch (c.aiMode) {
+async function checkFrame(canvas,c){
+  switch(c.aiMode){
     case 'browser': return analyzeFrameBrowser(canvas);
-    case 'gemini':  return await aiCheckGemini(canvas, c.geminiKey);
-    case 'claude':  return await aiCheckClaude(canvas, c.claudeKey);
-    default:        return { h: true, c: 1.0 }; // 'none' — пропускаем всё
+    case 'gemini':  return await aiCheckGemini(canvas,c.geminiKey);
+    case 'claude':  return await aiCheckClaude(canvas,c.claudeKey);
+    default:        return{h:true,c:1.0};
   }
 }
+
 
 /* ══════════════════════════════════════════════════════
    FFMPEG LOADER
