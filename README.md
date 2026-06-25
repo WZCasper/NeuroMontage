@@ -39,7 +39,7 @@ README.md
 
 ### 4. Открыть сайт
 ```
-https://ТВО_ИМЯ.github.io/automontage/
+https://WZCasper.github.io/automontage/
 ```
 
 ---
