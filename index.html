@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-<!-- NeuroClip v1 — build 2025.06 -->
+<!-- NeuroClip — build 2025.06 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>NeuroClip v1</title>
+<title>NeuroClip</title>
 <script src="coi-serviceworker.js"></script>
 <style>
 :root{
@@ -339,6 +339,31 @@ canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:cr
   font-size:.8rem;color:var(--txd);cursor:pointer}
 .ts-row input{accent-color:var(--p);cursor:pointer}
 
+
+/* ─── TYPE CORRECTION PICKER ─── */
+.sc-type{cursor:pointer;user-select:none;position:relative;display:inline-flex;align-items:center;gap:.25rem}
+.sc-type:hover{text-decoration:underline dotted}
+.sc-type::after{content:'✎';font-size:.62rem;opacity:.5}
+.type-picker{position:absolute;top:calc(100% + 4px);left:0;z-index:60;background:var(--bg4);
+  border:1px solid var(--bor);border-radius:8px;padding:.4rem;display:none;flex-wrap:wrap;
+  gap:.3rem;width:215px;box-shadow:0 10px 28px rgba(0,0,0,.55)}
+.type-picker.show{display:flex}
+.tp-item{padding:.26rem .55rem;background:var(--bg3);border:1px solid transparent;border-radius:5px;
+  font-size:.66rem;cursor:pointer;white-space:nowrap;transition:all .15s}
+.tp-item:hover{background:rgba(124,58,237,.25);border-color:var(--p)}
+
+/* ─── LEARNING BADGE ─── */
+.learn-badge{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-size:.74rem;
+  color:var(--txd);background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.25);
+  border-radius:10px;padding:.5rem .8rem;margin-top:.85rem}
+.learn-badge b{color:var(--pl);font-weight:700}
+.learn-reset{background:none;border:none;color:var(--err);font-size:.7rem;cursor:pointer;
+  text-decoration:underline;padding:0;margin-left:auto}
+.learn-reset:hover{color:#f87171}
+.learn-pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);
+  animation:learnPulse 1.8s infinite}
+@keyframes learnPulse{0%,100%{opacity:1}50%{opacity:.3}}
+
 </style>
 </head>
 <body>
@@ -348,7 +373,7 @@ canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:cr
 <div class="wrap">
 
 <header class="hdr">
-  <div class="logo">✂️ NeuroClip<span class="ver">v1</span></div>
+  <div class="logo">✂️ NeuroClip</div>
   <div class="tagline" id="tagline"></div>
 </header>
 
@@ -503,6 +528,13 @@ canvas#wfCanvas{width:100%;height:90px;border-radius:8px;display:block;cursor:cr
     </label>
   </div>
   <div class="fmt-warn" id="fmtWarn">⚠️ Вертикальный/квадрат требует перекодирования — работает дольше чем 16:9</div>
+
+  <div class="learn-badge" id="learnBadge">
+    <span class="learn-pulse"></span>
+    <span>🧠 Самообучение: <b id="learnCount">0</b> исправлений учтено</span>
+    <i class="ib" tabindex="0">i<span class="tip">Программа запоминает каждое твоё исправление типа клипа (например "Смех" → "Убийство") или исключение неверно найденного момента. На основе этих данных она калибрует пороги обнаружения для конкретно твоих видео. Данные хранятся в этом браузере и накапливаются со временем.</span></i>
+    <button class="learn-reset" id="learnResetBtn" onclick="App.learnReset()">Сбросить обучение</button>
+  </div>
 
   <div class="divider"></div>
   <div class="sec-lbl" id="lbl_visual"></div>
@@ -826,6 +858,88 @@ function hideErr(){hd('errbox');}
 const state={file:null,dur:0,rmsData:[],moments:[],segs:[],blob:null,ff:null,fetchFile:null,busy:false,srcUrl:null,thumbCache:{}};
 
 /* ════════════════════════════════════════════════════════════════
+   LEARNING SYSTEM
+   ────────────────────────────────────────────────────────────────
+   Не нейросеть — адаптивная калибровка порогов на основе явных
+   исправлений пользователя. Каждый раз когда ты меняешь тип сегмента
+   (например "Смех" → "Убийство") или исключаешь неверно найденный
+   клип, программа запоминает звуковой "отпечаток" этого момента
+   (энергия по 4 частотным полосам относительно порогов) и слегка
+   сдвигает чувствительность соответствующего детектора. Данные
+   хранятся в localStorage этого браузера и переживают перезагрузку
+   страницы и обновление сайта.
+════════════════════════════════════════════════════════════════ */
+const LEARN_KEY='neuroclip_learn_v1';
+const LEARN_MAX=400;
+
+const Learn={
+  _cache:null,
+
+  _load(){
+    if(Learn._cache)return Learn._cache;
+    try{
+      const raw=localStorage.getItem(LEARN_KEY);
+      Learn._cache=raw?JSON.parse(raw):{corrections:[],mult:{}};
+    }catch(e){ Learn._cache={corrections:[],mult:{}}; }
+    if(!Learn._cache.mult)Learn._cache.mult={};
+    if(!Learn._cache.corrections)Learn._cache.corrections=[];
+    return Learn._cache;
+  },
+
+  _save(){
+    try{ localStorage.setItem(LEARN_KEY, JSON.stringify(Learn._cache)); }
+    catch(e){ console.warn('Learn save failed:', e); }
+  },
+
+  // Возвращает множитель строгости для типа (1.0 = нет коррекций)
+  getMultiplier(type){
+    const d=Learn._load();
+    return d.mult[type] || 1.0;
+  },
+
+  // fromType — каким был определён момент (или null если новый/неизвестный)
+  // toType   — каким его назвал пользователь (или null если просто исключил)
+  // fp       — звуковой отпечаток {sub,bass,voice,high} в момент пика
+  recordCorrection(fromType, toType, fp){
+    const d=Learn._load();
+    d.corrections.push({from:fromType||null, to:toType||null, fp:fp||null, ts:Date.now()});
+    if(d.corrections.length>LEARN_MAX) d.corrections=d.corrections.slice(-LEARN_MAX);
+
+    // Ложное срабатывание для fromType → ужесточаем его детектор
+    if(fromType){
+      const cur=d.mult[fromType]||1.0;
+      d.mult[fromType]=Math.min(2.6, cur*1.12);
+    }
+    // Пропущенный момент для toType → немного смягчаем его детектор
+    if(toType && toType!==fromType){
+      const cur=d.mult[toType]||1.0;
+      d.mult[toType]=Math.max(0.42, cur*0.90);
+    }
+
+    Learn._cache=d;
+    Learn._save();
+    Learn.updateBadge();
+  },
+
+  reset(){
+    Learn._cache={corrections:[],mult:{}};
+    Learn._save();
+    Learn.updateBadge();
+  },
+
+  stats(){
+    const d=Learn._load();
+    return { count:d.corrections.length, mult:{...d.mult} };
+  },
+
+  updateBadge(){
+    const el=document.getElementById('learnCount');
+    if(el) el.textContent = Learn.stats().count;
+  }
+};
+
+
+/* ════════════════════════════════════════════════════════════════
    UPLOAD
 ════════════════════════════════════════════════════════════════ */
 const drop = $('drop');
@@ -862,6 +976,7 @@ function loadFile(f){
   $('fname').textContent=f.name;$('fmeta').textContent=fs(f.size)+' · …';
   drop.classList.add('hidden');  // ← автоскрытие зоны загрузки
   sh('finfo');sh('settingsCard');$('btnMain').classList.add('show');
+  Learn.updateBadge();
   if(state.srcUrl)URL.revokeObjectURL(state.srcUrl);
   state.srcUrl=URL.createObjectURL(f);
   const sv=$('srcVid');sv.src=state.srcUrl;
@@ -994,29 +1109,53 @@ async function analyzeAudio(audioBuf,c){
   const thrVoice=stVoice.mean+k*0.85*stVoice.std;
   const thrHigh =stHigh.mean +k*0.78*stHigh.std;
 
+  // ── Самообучение: применяем накопленные множители строгости ──────────
+  const LK=t=>Learn.getMultiplier(t);
   log(`k=${k.toFixed(2)} · суббас=${thrSub.toFixed(5)} · голос=${thrVoice.toFixed(5)} · высок=${thrHigh.toFixed(5)}`,'linf');
+  const learnStats=Learn.stats();
+  if(learnStats.count>0){
+    const adj=Object.entries(learnStats.mult).filter(([,v])=>Math.abs(v-1)>0.03)
+      .map(([k,v])=>`${k}×${v.toFixed(2)}`).join(' ');
+    log(`🧠 Учтено исправлений: ${learnStats.count}${adj?' · '+adj:''}`,'linf');
+  }
   setP(36,'Поиск моментов…');
 
   const moments=[];
   const lastT={};
 
-  function peaks(arr,thr,type,gap){
+  // Отпечаток энергий всех 4 полос относительно их порогов — используется
+  // для обучения: при коррекции типа сравниваем какая полоса доминировала
+  function snapFP(i){
+    const sIdx=Math.min(i,rmsSub.length-1), bIdx=Math.min(i,rmsBass.length-1),
+          vIdx=Math.min(i,rmsVoice.length-1), hIdx=Math.min(i,rmsHigh.length-1);
+    return{
+      sub:  rmsSub[sIdx]  ? +(rmsSub[sIdx].e  /(thrSub ||1e-9)).toFixed(3) : 0,
+      bass: rmsBass[bIdx] ? +(rmsBass[bIdx].e /(thrBass||1e-9)).toFixed(3) : 0,
+      voice:rmsVoice[vIdx]? +(rmsVoice[vIdx].e/(thrVoice||1e-9)).toFixed(3): 0,
+      high: rmsHigh[hIdx] ? +(rmsHigh[hIdx].e /(thrHigh||1e-9)).toFixed(3) : 0
+    };
+  }
+  function idxAtT(t){ return Math.min(rmsHigh.length-1, Math.max(0, Math.round(t*sr/hop))); }
+
+  function peaks(arr,thr,type,gap,mult=1){
     if(!c.types.includes(type))return;
+    const T=thr*mult;
     for(let i=1;i<arr.length-1;i++){
-      if(arr[i].e>thr&&arr[i].e>=arr[i-1].e&&arr[i].e>=arr[i+1].e){
+      if(arr[i].e>T&&arr[i].e>=arr[i-1].e&&arr[i].e>=arr[i+1].e){
         const t=arr[i].t;
-        if(!lastT[type]||t-lastT[type]>gap){moments.push({t,type,e:arr[i].e});lastT[type]=t;}
+        if(!lastT[type]||t-lastT[type]>gap){moments.push({t,type,e:arr[i].e,fp:snapFP(i)});lastT[type]=t;}
       }
     }
   }
 
   // 🔫 Gunshots — transient ratio spike in high band
   if(c.types.includes('kills')){
+    const killMult=LK('kills');
     for(let i=5;i<rmsHigh.length-1;i++){
       const prev=(rmsHigh[i-1].e+rmsHigh[i-2].e+rmsHigh[i-3].e+rmsHigh[i-4].e)/4;
-      if(prev>2e-6&&rmsHigh[i].e/(prev+1e-12)>3.5&&rmsHigh[i].e>thrHigh){
+      if(prev>2e-6&&rmsHigh[i].e/(prev+1e-12)>3.5*killMult&&rmsHigh[i].e>thrHigh*killMult){
         const t=rmsHigh[i].t;
-        if(!lastT['kills']||t-lastT['kills']>0.25){moments.push({t,type:'kills',e:rmsHigh[i].e});lastT['kills']=t;}
+        if(!lastT['kills']||t-lastT['kills']>0.25){moments.push({t,type:'kills',e:rmsHigh[i].e,fp:snapFP(i)});lastT['kills']=t;}
       }
     }
   }
@@ -1028,7 +1167,7 @@ async function analyzeAudio(audioBuf,c){
       if(killMoments[i]-killMoments[i-2]<2.5){
         const t=killMoments[i-1];
         if(!lastT['multikill']||t-lastT['multikill']>3){
-          moments.push({t,type:'multikill',e:1});lastT['multikill']=t;
+          moments.push({t,type:'multikill',e:1,fp:snapFP(idxAtT(t))});lastT['multikill']=t;
         }
       }
     }
@@ -1037,42 +1176,74 @@ async function analyzeAudio(audioBuf,c){
   // 🎯 Sniper — isolated high-freq crack after ≥600ms of quiet
   if(c.types.includes('sniper')){
     const silWin=Math.ceil(600/hopMs);
+    const sniperMult=LK('sniper');
     for(let i=silWin+3;i<rmsHigh.length-2;i++){
       const prevPeak=rmsHigh.slice(i-silWin,i-1).reduce((a,b)=>Math.max(a,b.e),0);
       const quiet=prevPeak<stHigh.mean+0.8*stHigh.std;
       const ratio=rmsHigh[i].e/(rmsHigh[i-1].e+1e-12);
-      if(quiet&&ratio>7&&rmsHigh[i].e>thrHigh*1.1){
+      if(quiet&&ratio>7*sniperMult&&rmsHigh[i].e>thrHigh*1.1*sniperMult){
         const t=rmsHigh[i].t;
-        if(!lastT['sniper']||t-lastT['sniper']>1.5){moments.push({t,type:'sniper',e:rmsHigh[i].e});lastT['sniper']=t;}
+        if(!lastT['sniper']||t-lastT['sniper']>1.5){moments.push({t,type:'sniper',e:rmsHigh[i].e,fp:snapFP(i)});lastT['sniper']=t;}
       }
     }
   }
 
   // 💥 Explosions — sub-bass peaks
-  peaks(rmsSub,thrSub,'exp',0.55);
+  peaks(rmsSub,thrSub,'exp',0.55,LK('exp'));
 
   // ⚡ General action — bass peaks
-  peaks(rmsBass,thrBass,'action',0.4);
+  peaks(rmsBass,thrBass,'action',0.4,LK('action'));
 
   // 😱 Reactions — voice peaks (loud single spikes)
-  peaks(rmsVoice,thrVoice,'react',0.5);
+  peaks(rmsVoice,thrVoice,'react',0.5,LK('react'));
 
-  // 😂 Laughter — rhythmic voice bursts with HIGH variance (NOT helicopter/constant sounds)
-  //   Helicopter = constant hum → low CV (coefficient of variation)
-  //   Laughter   = irregular bursts → high CV
+  // 😂 Лaughter — ключевое улучшение: исключаем контекст стрельбы
+  //
+  // Проблема: быстрые очереди из автомата тоже дают высокий CV в голосовой полосе
+  // Решение:
+  //  1. Если высокая полоса (3500+ Hz) одновременно активна → это выстрелы, не смех
+  //  2. Требуем как минимум 3 отдельных пика за 2 сек (ритм смеха)
+  //  3. Пики должны быть с интервалом 80-600ms (слишком быстро = очередь, слишком медленно = речь)
   if(c.types.includes('laugh')){
-    const winCv=Math.ceil(1200/hopMs);  // 1.2-second analysis window
-    for(let i=winCv;i<rmsVoice.length;i++){
+    const winCv  = Math.ceil(1500/hopMs);   // 1.5-секундное окно
+    const minGap = Math.ceil(80/hopMs);      // мин. 80ms между пиками смеха
+    const maxGap = Math.ceil(700/hopMs);     // макс. 700ms между пиками
+    const laughMult=LK('laugh');
+    // laughMult>1 (много ложных "смех"→другое) → строже: выше cv-порог,
+    // ниже gunfire-gate (агрессивнее исключаем контекст стрельбы).
+    // laughMult<1 (детектор слишком строг, пропускает реальный смех) → мягче.
+    const cvThr   = 0.42*laughMult;
+    const gateThr = (stHigh.mean + 0.9*stHigh.std)/laughMult;
+
+    for(let i=winCv; i<rmsVoice.length; i++){
+      // Контекст стрельбы: если высокая полоса сейчас активна — пропускаем
+      const highNow=rmsHigh[Math.min(i,rmsHigh.length-1)].e;
+      if(highNow > gateThr) continue;  // выстрелы рядом
+
       const slice=rmsVoice.slice(i-winCv,i).map(x=>x.e);
       const m=slice.reduce((a,b)=>a+b,0)/slice.length;
-      if(m<thrVoice*0.3)continue;  // too quiet
+      if(m < thrVoice*0.28) continue;  // слишком тихо
+
+      // Считаем ритмические пики (перепады вверх) в окне
+      let peaks3=0, lastPeak=-999;
+      for(let j=1; j<slice.length-1; j++){
+        if(slice[j]>slice[j-1] && slice[j]>=slice[j+1] && slice[j]>m*1.15){
+          const gap=j-lastPeak;
+          if(gap>=minGap && gap<=maxGap){ peaks3++; lastPeak=j; }
+          else if(gap<minGap){ /* слишком быстро — вероятно очередь */ }
+          else { lastPeak=j; } // просто обновляем опорную точку
+        }
+      }
+
       const std=Math.sqrt(slice.reduce((a,b)=>a+(b-m)**2,0)/slice.length);
-      const cv=m>1e-7?std/m:0;  // coefficient of variation
-      // Laughter: HIGH cv (irregular) + moderate energy + current frame above threshold
-      // Helicopters/planes: LOW cv (constant) even if loud → filtered out
-      if(cv>0.48&&rmsVoice[i].e>thrVoice*0.55){
+      const cv=m>1e-7?std/m:0;
+
+      // Смех: ≥3 ритмических пика + высокий CV + голосовая энергия без стрельбы
+      if(peaks3>=3 && cv>cvThr && rmsVoice[i].e>thrVoice*0.5){
         const t=rmsVoice[Math.max(0,i-Math.floor(winCv/2))].t;
-        if(!lastT['laugh']||t-lastT['laugh']>2.5){moments.push({t,type:'laugh',e:rmsVoice[i].e});lastT['laugh']=t;}
+        if(!lastT['laugh']||t-lastT['laugh']>2.5){
+          moments.push({t,type:'laugh',e:rmsVoice[i].e,fp:snapFP(i)});lastT['laugh']=t;
+        }
       }
     }
   }
@@ -1080,25 +1251,27 @@ async function analyzeAudio(audioBuf,c){
   // 🏆 Victory — sustained low-energy then musical tones (quiet phase = end of match)
   if(c.types.includes('victory')){
     const quietWin=Math.ceil(3000/hopMs);
+    const victoryMult=LK('victory');
     for(let i=quietWin;i<rmsAll.length-1;i++){
       const prevRMS=rmsAll.slice(i-quietWin,i).map(x=>x.e);
       const prevMean=prevRMS.reduce((a,b)=>a+b,0)/prevRMS.length;
       // Victory: previous 3 seconds were relatively quiet (game ended), then audio starts
-      if(prevMean<stHigh.mean*1.5&&rmsAll[i].e>prevMean*2.5){
+      if(prevMean<stHigh.mean*1.5&&rmsAll[i].e>prevMean*2.5*victoryMult){
         const t=rmsAll[i].t;
-        if(!lastT['victory']||t-lastT['victory']>15){moments.push({t,type:'victory',e:rmsAll[i].e});lastT['victory']=t;}
+        if(!lastT['victory']||t-lastT['victory']>15){moments.push({t,type:'victory',e:rmsAll[i].e,fp:snapFP(idxAtT(t))});lastT['victory']=t;}
       }
     }
   }
 
   // ❤️ Near death — sustained high energy voice+bass (player panicking)
   if(c.types.includes('neardeath')){
+    const ndMult=LK('neardeath');
     for(let i=1;i<rmsVoice.length-1;i++){
       const combined=rmsVoice[i].e*0.6+rmsBass[i].e*0.4;
-      const thr=stVoice.mean*0.7+stBass.mean*0.3+k*0.7*(stVoice.std*0.6+stBass.std*0.4);
+      const thr=(stVoice.mean*0.7+stBass.mean*0.3+k*0.7*(stVoice.std*0.6+stBass.std*0.4))*ndMult;
       if(combined>thr){
         const t=rmsVoice[i].t;
-        if(!lastT['neardeath']||t-lastT['neardeath']>2.0){moments.push({t,type:'neardeath',e:combined});lastT['neardeath']=t;}
+        if(!lastT['neardeath']||t-lastT['neardeath']>2.0){moments.push({t,type:'neardeath',e:combined,fp:snapFP(i)});lastT['neardeath']=t;}
       }
     }
   }
@@ -1117,7 +1290,7 @@ async function analyzeAudio(audioBuf,c){
 }
 
 function buildSegs(moments,c,dur){
-  const raw=moments.map(m=>({start:Math.max(0,m.t-c.padb),end:Math.min(dur,m.t+c.pada),type:m.type}))
+  const raw=moments.map(m=>({start:Math.max(0,m.t-c.padb),end:Math.min(dur,m.t+c.pada),type:m.type,fp:m.fp||null}))
     .sort((a,b)=>a.start-b.start);
   const merged=[];
   for(const s of raw){
@@ -1464,6 +1637,10 @@ function updateCounter(){
   $('renderNote').textContent=on===0?T('toast_none'):`~${ft(dur)} · ${on} клипов`;
 }
 
+// Типы доступные для ручной коррекции (исключая визуально-только squadwipe/gulag/eyecontact/vehicle —
+// их можно исправить тоже, для полноты включаем все)
+const CORRECTABLE_TYPES=['kills','multikill','sniper','exp','react','laugh','neardeath','victory','squadwipe','gulag','eyecontact','vehicle','action'];
+
 async function renderSegCards(){
   const grid=$('segsGrid');grid.innerHTML='';
   for(let i=0;i<state.segs.length;i++){
@@ -1474,11 +1651,24 @@ async function renderSegCards(){
     pw.innerHTML=`<img class="sc-thumb" id="th_${i}" src="" alt=""><div class="sc-play-btn"><div class="sc-play-icon">▶</div></div><div class="sc-overlay"><div class="sc-overlay-txt">ИСКЛЮЧЁН</div></div>`;
     pw.addEventListener('click',()=>App.openPreview(i));
     const body=document.createElement('div');body.className='sc-body';
-    body.innerHTML=`<div class="sc-type ${s.type}">${TYPE_LABELS[s.type]||'⚡ МОМЕНТ'}</div><div class="sc-time">${ft(s.start)} – ${ft(s.end)}</div><div class="sc-dur">${ft(s.end-s.start)}</div><div class="sc-footer"><button class="sc-btn ${s.excluded?'incl':'exc'}" onclick="App.toggleSeg(${i})">${s.excluded?'✅ Включить':'❌ Исключить'}</button></div>`;
+
+    const pickerItems=CORRECTABLE_TYPES.map(t=>
+      `<div class="tp-item" onclick="event.stopPropagation();App.correctType(${i},'${t}')">${TYPE_LABELS[t]||t}</div>`
+    ).join('');
+
+    body.innerHTML=`
+      <div class="sc-type ${s.type}" id="sctype_${i}" onclick="App.toggleTypePicker(${i})">
+        ${TYPE_LABELS[s.type]||'⚡ МОМЕНТ'}
+        <div class="type-picker" id="tp_${i}">${pickerItems}</div>
+      </div>
+      <div class="sc-time">${ft(s.start)} – ${ft(s.end)}</div>
+      <div class="sc-dur">${ft(s.end-s.start)}</div>
+      <div class="sc-footer"><button class="sc-btn ${s.excluded?'incl':'exc'}" onclick="App.toggleSeg(${i})">${s.excluded?'✅ Включить':'❌ Исключить'}</button></div>`;
     card.appendChild(pw);card.appendChild(body);grid.appendChild(card);
     grabThumb(mid).then(url=>{const img=$(`th_${i}`);if(img){img.src=url;img.onerror=()=>img.style.display='none';}});
   }
   updateCounter();sh('segsCard');
+  Learn.updateBadge();
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1762,7 +1952,9 @@ const Q = {
    PUBLIC API
 ════════════════════════════════════════════════════════════════ */
 function toggleSeg(idx){
-  const s=state.segs[idx];s.excluded=!s.excluded;
+  const s=state.segs[idx];
+  const wasExcluded=s.excluded;
+  s.excluded=!s.excluded;
   const card=$(`sc_${idx}`);
   card.classList.toggle('excluded',s.excluded);
   const btn=card.querySelector('.sc-btn');
@@ -1771,9 +1963,61 @@ function toggleSeg(idx){
   updateCounter();
   const dur=state.dur||state.segs[state.segs.length-1].end;
   drawWaveform(state.rmsData,state.moments,state.segs,dur);
+
+  // Мягкое обучение: пользователь явно ИСКЛЮЧИЛ найденный момент → это
+  // вероятно ложное срабатывание детектора этого типа (слабее, чем явная
+  // переклассификация через picker, но тоже полезный сигнал)
+  if(s.excluded && !wasExcluded && s.fp){
+    Learn.recordCorrection(s.type, null, s.fp);
+  }
 }
 
 function selectAll(){state.segs.forEach((_,i)=>{state.segs[i].excluded=false;});renderSegCards();const dur=state.dur||state.segs[state.segs.length-1].end;drawWaveform(state.rmsData,state.moments,state.segs,dur);}
+
+/* ── Type correction picker ── */
+function toggleTypePicker(idx){
+  // Закрываем все другие открытые пикеры
+  document.querySelectorAll('.type-picker.show').forEach(p=>{ if(p.id!==`tp_${idx}`) p.classList.remove('show'); });
+  const p=$(`tp_${idx}`);
+  if(p) p.classList.toggle('show');
+}
+
+// Закрытие пикера при клике вне его
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.sc-type')){
+    document.querySelectorAll('.type-picker.show').forEach(p=>p.classList.remove('show'));
+  }
+});
+
+function correctType(idx,newType){
+  const s=state.segs[idx];
+  if(!s||s.type===newType){ const p=$(`tp_${idx}`); if(p)p.classList.remove('show'); return; }
+
+  const oldType=s.type;
+  Learn.recordCorrection(oldType, newType, s.fp);
+  s.type=newType;
+
+  // Точечно обновляем бейдж типа без полной перерисовки сетки
+  const badge=$(`sctype_${idx}`);
+  if(badge){
+    const pickerItems=CORRECTABLE_TYPES.map(t=>
+      `<div class="tp-item" onclick="event.stopPropagation();App.correctType(${idx},'${t}')">${TYPE_LABELS[t]||t}</div>`
+    ).join('');
+    badge.className=`sc-type ${newType}`;
+    badge.innerHTML=`${TYPE_LABELS[newType]||newType}<div class="type-picker" id="tp_${idx}">${pickerItems}</div>`;
+  }
+
+  const dur=state.dur||state.segs[state.segs.length-1].end;
+  drawWaveform(state.rmsData,state.moments,state.segs,dur);
+
+  toast(`🧠 Запомнено: "${TYPE_LABELS[oldType]||oldType}" → "${TYPE_LABELS[newType]||newType}"`,'ok',3000);
+}
+
+function learnReset(){
+  const n=Learn.stats().count;
+  Learn.reset();
+  toast(n>0?`🧠 Обучение сброшено (удалено ${n} исправлений)`:'Обучение уже пустое','ok',3500);
+}
 function selectNone(){state.segs.forEach((_,i)=>{state.segs[i].excluded=true;});renderSegCards();const dur=state.dur||state.segs[state.segs.length-1].end;drawWaveform(state.rmsData,state.moments,state.segs,dur);}
 
 function openPreview(idx){
@@ -1813,6 +2057,7 @@ function reset(){
 }
 
 window.App={analyze,render,toggleSeg,selectAll,selectNone,reset,openPreview,closePreview,
+  correctType,toggleTypePicker,learnReset,
   queueAdd:()=>{const fi=$('queueFin');if(fi){fi.value='';fi.click();}},
   queueRm:(i)=>{Q.remove(i);},
   queueDl:(i)=>{Q.download(i);},
