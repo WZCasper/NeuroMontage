@@ -778,9 +778,9 @@ ru:{
   tip_pada:'Сколько секунд добавить ПОСЛЕ момента — чтобы захватить реакцию стримера и итог. Рекомендуем 1–2 сек.',
   tip_types:'Выбери типы событий для поиска. Программа ищет только отмеченные типы. Больше типов = больше клипов.',
   hint_none:'🔈 Только звук — IIR-фильтры по частотным полосам: выстрелы, взрывы, крики, смех. Быстро, работает без интернета.',
-  hint_br:'🧠 Браузерный AI — пиксельный анализ кадров: килл-фид, HP-виньет, взрывы, зрительный контакт. Бесплатно.',
-  hint_gem:'✨ Google Gemini 1.5 Flash — бесплатно 1500 запросов/день. Ключ на aistudio.google.com',
-  hint_cl:'🤖 Claude Sonnet — самый точный, понимает контекст. Платно ~$0.002/кадр. console.anthropic.com',
+  hint_br:'🧠 Браузерный AI — упрощённый анализ по пикселям (цвет/контраст), без нейросети. Бесплатно и мгновенно, но менее точен чем Gemini/Claude.',
+  hint_gem:'✨ Gemini 3.5 Flash — смотрит сразу на 3 кадра клипа подряд (находит даже короткие вспышки килл-фида). Бесплатный ключ на aistudio.google.com, лимиты смотри в Google AI Studio.',
+  hint_cl:'🤖 Claude Sonnet 4.6 — смотрит сразу на 3 кадра клипа, самый точный по контексту сцены. Платно, ~$0.003–0.006 за клип. console.anthropic.com',
 },
 en:{
   tagline:'Automatic editor and montage of interesting gaming moments for free.',
@@ -819,9 +819,9 @@ en:{
   tip_pada:'Seconds to add AFTER the moment to capture streamer reaction. Recommend 1–2 sec.',
   tip_types:'Select event types to search for. Only checked types are detected.',
   hint_none:'🔈 Sound only — IIR filters by frequency bands: gunshots, explosions, screams, laughter. Fast, works offline.',
-  hint_br:'🧠 Browser AI — pixel analysis: kill feed, HP vignette, explosions, eye contact. Free.',
-  hint_gem:'✨ Google Gemini 1.5 Flash — free 1500 req/day. Key at aistudio.google.com',
-  hint_cl:'🤖 Claude Sonnet — most accurate, understands context. ~$0.002/frame. console.anthropic.com',
+  hint_br:'🧠 Browser AI — simplified pixel/contrast heuristic, no neural network. Free and instant, but less accurate than Gemini/Claude.',
+  hint_gem:'✨ Gemini 3.5 Flash — looks at 3 sequential frames per clip at once (catches brief kill-feed flashes). Free key at aistudio.google.com, check limits in Google AI Studio.',
+  hint_cl:'🤖 Claude Sonnet 4.6 — looks at 3 sequential frames per clip, most accurate at scene context. Paid, ~$0.003–0.006/clip. console.anthropic.com',
 },
 de:{tagline:'Automatischer Highlight-Schnitt deiner Gaming-Momente – kostenlos.',drop_ttl:'Gaming-Video hochladen',drop_hint:'Datei hierher ziehen oder klicken · bis 10 GB',btn_analyze:'🔍 ANALYSIEREN',btn_render:'🎬 Schneiden',btn_dl:'⬇️ MP4 herunterladen',btn_new:'🔄 Neues Video',out_ttl:'✅ Fertig!',toast_loaded:'✅ Video geladen!',toast_none:'⚠️ Keine Momente gefunden.'},
 fr:{tagline:'Montage automatique de vos meilleurs moments de jeu – gratuit.',drop_ttl:'Importez votre vidéo gaming',drop_hint:'Glissez ou cliquez · jusqu\'à 10 Go',btn_analyze:'🔍 ANALYSER',btn_render:'🎬 Monter',btn_dl:'⬇️ Télécharger MP4',btn_new:'🔄 Nouvelle vidéo',out_ttl:'✅ Prêt!',toast_loaded:'✅ Vidéo chargée!',toast_none:'⚠️ Aucun moment trouvé.'},
@@ -1528,6 +1528,19 @@ async function grabFrame(t){
   c.getContext('2d').drawImage(vid,0,0,W,H);return c;
 }
 
+// Захватывает несколько кадров, равномерно распределённых внутри сегмента.
+// Зачем: килл-фид/уведомление часто видно лишь долю секунды — один случайный
+// кадр середины клипа легко его пропускает. Несколько кадров, отправленные
+// в ОДНОМ запросе к Gemini/Claude, позволяют модели сравнить их между собой
+// и заметить то, что мелькнуло только в одном из них.
+async function grabFrames(start,end,n=3){
+  const dur=Math.max(0.001,end-start);
+  const fracs = n<=1 ? [0.5] : Array.from({length:n},(_,i)=>0.15+ (0.70*i/(n-1)));
+  const frames=[];
+  for(const f of fracs) frames.push(await grabFrame(start+dur*f));
+  return frames;
+}
+
 async function grabThumb(t){
   if(state.thumbCache[t])return state.thumbCache[t];
   const c=await grabFrame(t);const url=c.toDataURL('image/jpeg',0.55);
@@ -1571,64 +1584,87 @@ function analyzeFrameBrowser(canvas){
   return{h:score>0.20,c:Math.min(1,score),type,reason:signals.join(' · ')||'no signals'};
 }
 
-async function aiCheckGemini(canvas,key){
-  const b64=canvas.toDataURL('image/jpeg',0.65).split(',')[1];
-  const PROMPT=`Analyze this Warzone 2026 gameplay screenshot for video highlight detection.
+async function aiCheckGemini(canvases,key,game){
+  // Модель gemini-1.5-flash ОТКЛЮЧЕНА Google (404 на все запросы) —
+  // используем актуальную стабильную gemini-3.5-flash.
+  const MODEL='gemini-3.5-flash';
+  const parts=canvases.map(cv=>({inline_data:{mime_type:'image/jpeg',data:cv.toDataURL('image/jpeg',0.78).split(',')[1]}}));
+  const gp=getGamePrompt(game||'warzone');
+  const PROMPT=`You are shown ${canvases.length} sequential screenshots, in time order, taken evenly across one short ${gp.name} gameplay clip. Examine EACH frame individually — a real highlight (kill-feed entry, damage number, notification) often flashes briefly and may appear in only ONE of the frames, not all of them.
 
-Check specifically:
-- KILL FEED: top-right corner, white text lines with player names + skull/weapon icons between them
-- DAMAGE NUMBERS: white or yellow floating numbers anywhere
-- "ELIMINATED" or "KNOCKED" large text on screen
-- "SQUAD WIPED" banner (very high value)
-- LOW HEALTH: strong RED vignette pulsing around ALL screen edges
-- EXPLOSION: large orange/yellow bright flash 30%+ of screen
-- GULAG: prison cage arena, 1v1 environment
-- VICTORY: bright white "WARZONE" logo or white results screen with low saturation
-- EYE CONTACT: small webcam box in any corner showing human face looking at camera
-- MULTI-KILL: 2+ lines in kill feed simultaneously
+${gp.hints}
+
+Also check for:
+- EYE CONTACT: webcam box in any corner showing a human face looking directly at camera
 
 Respond ONLY with raw JSON, no markdown, no explanation:
-{"h":true,"c":0.87,"type":"kills","reason":"kill feed 2 entries top right"}
+{"h":true,"c":0.87,"type":"kills","reason":"frame 2 shows kill feed entry top right"}
 
-type: kills multikill exp react neardeath squadwipe gulag victory eyecontact sniper action
-No highlight: {"h":false,"c":0.05,"type":"action","reason":"no highlights"}`;
+type must be one of: kills multikill exp react neardeath squadwipe gulag victory eyecontact sniper action
+If nothing notable in any frame: {"h":false,"c":0.05,"type":"action","reason":"no highlights in any frame"}`;
+
+  let r,data;
   try{
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:b64}},{text:PROMPT}]}],
-         generationConfig:{maxOutputTokens:100,temperature:0,topP:0.05}})});
-    const data=await r.json();
-    if(data.error){log('Gemini: '+data.error.message,'lwarn');return{h:true,c:0.5};}
+    r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[...parts,{text:PROMPT}]}],
+        generationConfig:{maxOutputTokens:120,temperature:0,topP:0.05}})
+    });
+    data=await r.json();
+  }catch(e){
+    return{h:true,c:0.5,_hardFail:true,_err:`Gemini недоступен: ${e.message}`};
+  }
+  if(!r.ok||data.error){
+    const msg=data?.error?.message||`HTTP ${r.status}`;
+    return{h:true,c:0.5,_hardFail:true,_err:`Gemini (${MODEL}): ${msg}`};
+  }
+  try{
     const txt=(data.candidates?.[0]?.content?.parts?.[0]?.text||'').replace(/```json?|```|\n/g,'').trim();
     if(!txt)return{h:false,c:0.1,type:'action'};
     const res=JSON.parse(txt);
     log(`Gemini [${res.type}] c=${res.c} — ${res.reason||''}`);
     return res;
-  }catch(e){log('Gemini: '+e.message,'lwarn');return{h:true,c:0.5};}
+  }catch(e){
+    log('Gemini: ответ не в формате JSON, пропускаем кадр','lwarn');
+    return{h:true,c:0.5};
+  }
 }
 
-async function aiCheckClaude(canvas,key,game="warzone"){
-  const b64=canvas.toDataURL('image/jpeg',0.55).split(',')[1];
+async function aiCheckClaude(canvases,key,game="warzone"){
+  const imgBlocks=canvases.map(cv=>({type:'image',source:{type:'base64',media_type:'image/jpeg',data:cv.toDataURL('image/jpeg',0.72).split(',')[1]}}));
+  const gp=getGamePrompt(game||'warzone');
+  const promptText=`You are shown ${canvases.length} sequential frames, in time order, from one short ${gp.name} clip. Check EACH frame individually — a kill-feed entry or notification may flash briefly and appear in only one frame. Look for: kill feed top-right (player names+weapon/skull icons), damage numbers, ELIMINATED/KNOCKED/SQUAD WIPED text, red vignette edges=low HP, large orange flash=explosion, 2+ kill feed entries=multikill, gulag arena, victory/win screen, webcam corner with face=eye contact, isolated high-freq crack after quiet=sniper. ONLY JSON: {"h":true/false,"c":0.0-1.0,"type":"kills|multikill|exp|react|neardeath|squadwipe|gulag|victory|eyecontact|sniper|action","reason":"brief, mention which frame"}`;
+
+  let r,data;
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+    r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01',
                'anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:100,messages:[{role:'user',content:[
-        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
-        {type:'text',text:`${getGamePrompt(game||'warzone').name} screenshot. Highlight? Look for: kill feed top-right (player names+weapon/skull icons), damage numbers, ELIMINATED/KNOCKED/SQUAD WIPED text, red vignette edges=low HP, large orange flash=explosion, 2+ kill feed entries=multikill, gulag arena, victory/win screen, webcam corner with face=eye contact, isolated high-freq crack after quiet=sniper. ONLY JSON: {"h":true/false,"c":0.0-1.0,"type":"kills|multikill|exp|react|neardeath|squadwipe|gulag|victory|eyecontact|sniper|action","reason":"brief"}`}
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:120,messages:[{role:'user',content:[
+        ...imgBlocks,{type:'text',text:promptText}
       ]}]})});
-    const data=await r.json();
-    if(data.error){log('Claude: '+data.error.message,'lwarn');return{h:true,c:0.5};}
+    data=await r.json();
+  }catch(e){
+    return{h:true,c:0.5,_hardFail:true,_err:`Claude недоступен: ${e.message}`};
+  }
+  if(!r.ok||data.error){
+    const msg=data?.error?.message||`HTTP ${r.status}`;
+    return{h:true,c:0.5,_hardFail:true,_err:`Claude: ${msg}`};
+  }
+  try{
     const txt=(data.content?.[0]?.text||'{"h":true,"c":0.5}').replace(/```json?|```/g,'').trim();
     return JSON.parse(txt);
-  }catch(e){log('Claude: '+e.message,'lwarn');return{h:true,c:0.5};}
+  }catch(e){
+    log('Claude: ответ не в формате JSON, пропускаем кадр','lwarn');
+    return{h:true,c:0.5};
+  }
 }
 
-async function checkFrame(canvas,c){
+async function checkFrame(canvases,c){
   switch(c.aiMode){
-    case 'browser':return analyzeFrameBrowser(canvas);
-    case 'gemini': return await aiCheckGemini(canvas,c.geminiKey,c.game);
-    case 'claude': return await aiCheckClaude(canvas,c.claudeKey,c.game);
+    case 'browser':return analyzeFrameBrowser(canvases[Math.floor(canvases.length/2)]||canvases[0]);
+    case 'gemini': return await aiCheckGemini(canvases,c.geminiKey,c.game);
+    case 'claude': return await aiCheckClaude(canvases,c.claudeKey,c.game);
     default:       return{h:true,c:1.0};
   }
 }
@@ -1851,25 +1887,46 @@ async function analyze(){
 
     // Step 3 — Visual AI (45-68%) [only if not 'none']
     if(c.aiMode!=='none'){
-      const name={browser:'Браузерный AI',gemini:'Gemini',claude:'Claude'}[c.aiMode];
+      const name={browser:'Браузерный AI',gemini:'Gemini 3.5 Flash',claude:'Claude Sonnet 4.6'}[c.aiMode];
       setSteps(3,3);setP(45,`${name}: анализируем...`);
       log(`${name} · ${state.segs.length} сегментов`,'linf');
       const kept=[];
+      const isMulti=c.aiMode==='gemini'||c.aiMode==='claude';
+      let aborted=false;
+
       for(let i=0;i<state.segs.length;i++){
         const s=state.segs[i];
-        // Fixed progress: 45 → 68 over N segments
+
+        // Циркуит-брейкер сработал на предыдущем сегменте — AI недоступен,
+        // дальше просто сохраняем найденное звуком, не долбим мёртвый API
+        if(aborted){ kept.push(s); continue; }
+
         setP(45+(i/state.segs.length)*23,`${name}: ${i+1}/${state.segs.length}`);
-        const canvas=await grabFrame((s.start+s.end)/2);
-        const res=await checkFrame(canvas,c);
+
+        const canvases = isMulti
+          ? await grabFrames(s.start,s.end,3)   // 3 кадра в одном запросе — ловим короткие вспышки килл-фида
+          : [await grabFrame((s.start+s.end)/2)];
+
+        const res=await checkFrame(canvases,c);
+
+        // Жёсткий сбой (модель удалена/неверный ключ/нет сети) — раньше это
+        // тихо проглатывалось и КАЖДЫЙ сегмент молча принимался как валидный
+        // (поэтому AI-режим выглядел как "ничего не делает"). Теперь —
+        // явная остановка с понятным сообщением вместо имитации работы.
+        if(res._hardFail){
+          aborted=true;
+          log(`❌ ${res._err||'AI недоступен'}`,'lerr');
+          log('AI-проверка остановлена — используем то, что нашёл звук, без визуального подтверждения','lerr');
+          toast(`⚠️ ${name} не отвечает: ${res._err||'ошибка API'}. Дальше работаем по звуку.`,'err',8000);
+          kept.push(s);
+          continue;
+        }
+
         const ok=res.h!==false||(res.c||0)>=0.25;
 
-        // Автоматическое обучение: визуальный AI смотрит на кадр и иногда
-        // не соглашается со звуковым детектором (например звук решил "смех",
-        // а на кадре виден килл-фид). Это реальный, но менее надёжный сигнал
-        // чем явное действие человека — поэтому остаётся ТОЛЬКО локальным,
-        // не отправляется в общую базу (два автономных алгоритма не должны
-        // молча калибровать общие пороги друг через друга без подтверждения
-        // человеком).
+        // Автоматическое обучение: визуальный AI смотрит на кадры и иногда
+        // не соглашается со звуковым детектором. Реальный, но менее надёжный
+        // сигнал чем явное действие человека — остаётся ТОЛЬКО локальным.
         if(res.type && ok && s.type && res.type!==s.type && s.fp){
           Learn.recordCorrection(s.type, res.type, s.fp);
         }
